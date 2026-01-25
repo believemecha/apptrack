@@ -2,6 +2,7 @@ package com.example.apptrack.call
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.ContactsContract
 import android.telecom.*
 import android.util.Log
 import com.example.apptrack.ui.screens.InCallActivity
@@ -192,34 +193,73 @@ class AppConnectionService : ConnectionService() {
         }
     }
     
-    private fun launchIncomingCallActivity(phoneNumber: String) {
-        try {
-            val intent = Intent(this, InCallActivity::class.java).apply {
-                // Critical flags to show over lock screen and wake up device
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or 
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
-                        Intent.FLAG_ACTIVITY_NO_HISTORY
-                putExtra("phoneNumber", phoneNumber)
-                putExtra("callType", "INCOMING")
+        private fun launchIncomingCallActivity(phoneNumber: String) {
+            try {
+                // Get contact name for incoming call
+                val contactName = getContactName(phoneNumber)
+                
+                val intent = Intent(this, InCallActivity::class.java).apply {
+                    // Critical flags to show over lock screen and wake up device
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                            Intent.FLAG_ACTIVITY_NO_HISTORY
+                    putExtra("phoneNumber", phoneNumber)
+                    putExtra("contactName", contactName)
+                    putExtra("callType", "INCOMING")
+                }
+                startActivity(intent)
+                Log.d(TAG, "Launched incoming call UI for $phoneNumber (name: $contactName)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to launch incoming call UI: ${e.message}", e)
             }
-            startActivity(intent)
-            Log.d(TAG, "Launched incoming call UI for $phoneNumber")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch incoming call UI: ${e.message}", e)
         }
-    }
+        
+        private fun getContactName(phoneNumber: String): String? {
+            return try {
+                val uri = Uri.withAppendedPath(
+                    ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                    Uri.encode(phoneNumber)
+                )
+                val cursor = contentResolver.query(
+                    uri,
+                    arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex = it.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME)
+                        if (nameIndex >= 0) {
+                            it.getString(nameIndex)
+                        } else {
+                            null
+                        }
+                    } else {
+                        null
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get contact name: ${e.message}", e)
+                null
+            }
+        }
     
     private fun launchInCallActivity(phoneNumber: String, isIncoming: Boolean) {
         try {
+            // Get contact name
+            val contactName = getContactName(phoneNumber)
+            
             val intent = Intent(this, InCallActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("phoneNumber", phoneNumber)
+                putExtra("contactName", contactName)
                 putExtra("callType", if (isIncoming) "INCOMING" else "OUTGOING")
             }
             startActivity(intent)
-            Log.d(TAG, "Launched InCallActivity for $phoneNumber (incoming: $isIncoming)")
+            Log.d(TAG, "Launched InCallActivity for $phoneNumber (name: $contactName, incoming: $isIncoming)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch InCallActivity: ${e.message}", e)
         }

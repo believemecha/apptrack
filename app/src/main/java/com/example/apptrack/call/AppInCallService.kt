@@ -1,7 +1,9 @@
 package com.example.apptrack.call
 
 import android.content.Intent
+import android.net.Uri
 import android.os.IBinder
+import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.DisconnectCause
 import android.telecom.InCallService
@@ -41,6 +43,9 @@ class AppInCallService : InCallService() {
         // Show in-call UI immediately - use a small delay to ensure service is ready
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try {
+                // Get contact name for the call
+                val contactName = getContactName(phoneNumber)
+                
                 val intent = Intent(this, InCallActivity::class.java).apply {
                     // Critical flags to show over lock screen and bypass background start restrictions
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or 
@@ -49,17 +54,20 @@ class AppInCallService : InCallService() {
                             Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
                             Intent.FLAG_ACTIVITY_NO_HISTORY)
                     putExtra("phoneNumber", phoneNumber)
+                    putExtra("contactName", contactName)
                     putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
                 }
                 startActivity(intent)
-                Log.d(TAG, "InCallActivity started successfully for $phoneNumber")
+                Log.d(TAG, "InCallActivity started successfully for $phoneNumber (name: $contactName)")
             } catch (e: SecurityException) {
                 Log.e(TAG, "SecurityException starting InCallActivity (may need SYSTEM_ALERT_WINDOW permission): ${e.message}", e)
                 // Try again with different flags as fallback
                 try {
+                    val contactName = getContactName(phoneNumber)
                     val fallbackIntent = Intent(this, InCallActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         putExtra("phoneNumber", phoneNumber)
+                        putExtra("contactName", contactName)
                         putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
                     }
                     startActivity(fallbackIntent)
@@ -168,6 +176,37 @@ class AppInCallService : InCallService() {
     override fun onBind(intent: Intent?): IBinder? {
         Log.d(TAG, "onBind called - InCallService is being bound by system")
         return super.onBind(intent)
+    }
+    
+    private fun getContactName(phoneNumber: String): String? {
+        return try {
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(phoneNumber)
+            )
+            val cursor = contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val nameIndex = it.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME)
+                    if (nameIndex >= 0) {
+                        it.getString(nameIndex)
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get contact name: ${e.message}", e)
+            null
+        }
     }
     
     override fun onDestroy() {

@@ -17,6 +17,7 @@ object CallControlManager {
     private var audioManager: AudioManager? = null
     private var isMutedState = false
     private var callStartTime: Long? = null
+    private var dtmfDigits = StringBuilder() // Store DTMF digits pressed during call
     
     fun initialize(context: Context) {
         audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -237,5 +238,44 @@ object CallControlManager {
         } else {
             false
         }
+    }
+    
+    fun playDtmfTone(digit: Char) {
+        val call = getActiveCall()
+        if (call != null) {
+            try {
+                Log.d(TAG, "Playing DTMF tone: $digit")
+                // Store the digit
+                dtmfDigits.append(digit)
+                Log.d(TAG, "DTMF sequence so far: ${dtmfDigits.toString()}")
+                
+                call.playDtmfTone(digit)
+                // Stop the tone after a short delay (typically 200ms)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    call.stopDtmfTone()
+                }, 200)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to play DTMF tone: ${e.message}", e)
+            }
+        } else {
+            Log.w(TAG, "No active call to play DTMF tone")
+        }
+    }
+    
+    fun getDtmfDigits(): String {
+        return dtmfDigits.toString()
+    }
+    
+    fun clearDtmfDigits() {
+        dtmfDigits.clear()
+        Log.d(TAG, "DTMF digits cleared")
+    }
+    
+    fun resetCallState() {
+        // Reset all call-related state when call ends
+        stopCallTimer()
+        clearDtmfDigits()
+        isMutedState = false
+        Log.d(TAG, "Call state reset")
     }
 }

@@ -193,6 +193,8 @@ fun InCallScreen(
     var isCallActive by remember { mutableStateOf(false) }
     var contactPhoto by remember { mutableStateOf<Bitmap?>(null) }
     var isOnHold by remember { mutableStateOf(false) }
+    var showKeypad by remember { mutableStateOf(false) }
+    var dtmfSequence by remember { mutableStateOf("") } // Display DTMF sequence
     
     // Load contact photo
     LaunchedEffect(phoneNumber) {
@@ -206,6 +208,7 @@ fun InCallScreen(
             isMuted = CallControlManager.isMuted()
             isSpeakerOn = CallControlManager.isSpeakerOn()
             callDuration = CallControlManager.getCallDuration()
+            dtmfSequence = CallControlManager.getDtmfDigits() // Update DTMF sequence display
             
             val activeCall = CallControlManager.getActiveCall()
             isCallActive = activeCall?.state == Call.STATE_ACTIVE || callDuration > 0
@@ -278,7 +281,7 @@ fun InCallScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Contact Name - Prominently displayed
+            // Contact Name - Prominently displayed (always show name or number)
             Text(
                 text = contactName ?: formatPhoneNumber(phoneNumber),
                 style = MaterialTheme.typography.headlineLarge,
@@ -290,8 +293,18 @@ fun InCallScreen(
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            // Phone Number (if contact name exists)
+            // Phone Number (always show if we have a contact name, or show formatted number if no name)
             if (contactName != null && phoneNumber.isNotEmpty()) {
+                // Show number below name if contact exists
+                Text(
+                    text = formatPhoneNumber(phoneNumber),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp,
+                    color = Color.White.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+            } else if (phoneNumber.isNotEmpty()) {
+                // Show formatted number if no contact name
                 Text(
                     text = formatPhoneNumber(phoneNumber),
                     style = MaterialTheme.typography.bodyLarge,
@@ -326,7 +339,57 @@ fun InCallScreen(
                 )
             }
             
+            // DTMF Sequence Display (show what's being typed)
+            if (dtmfSequence.isNotEmpty() && isCallActive) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
+                        .background(
+                            color = Color.White.copy(alpha = 0.2f),
+                            shape = MaterialTheme.shapes.medium
+                        )
+                        .padding(vertical = 12.dp, horizontal = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Entered: ",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 14.sp,
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            text = dtmfSequence,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            letterSpacing = 4.sp
+                        )
+                    }
+                }
+            }
+            
             Spacer(modifier = Modifier.weight(1f))
+            
+            // Keypad Bottom Sheet (shown when keypad button is clicked)
+            if (isCallActive) {
+                KeypadBottomSheet(
+                    isVisible = showKeypad,
+                    onDismiss = { showKeypad = false },
+                    onKeyPressed = { digit ->
+                        CallControlManager.playDtmfTone(digit)
+                        // Update displayed sequence immediately
+                        dtmfSequence = CallControlManager.getDtmfDigits()
+                    },
+                    dtmfSequence = dtmfSequence
+                )
+            }
             
             // Call Controls
             if (callType == CallType.INCOMING && !isCallActive) {
@@ -391,8 +454,10 @@ fun InCallScreen(
                         ControlButtonWithIcon(
                             iconText = "⌨️",
                             label = "Keypad",
-                            isActive = false,
-                            onClick = { /* TODO: Show keypad */ }
+                            isActive = showKeypad,
+                            onClick = { 
+                                showKeypad = !showKeypad
+                            }
                         )
                     }
                     
@@ -541,6 +606,209 @@ fun ControlButtonWithIcon(
             textAlign = TextAlign.Center,
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun KeypadBottomSheet(
+    isVisible: Boolean,
+    onDismiss: () -> Unit,
+    onKeyPressed: (Char) -> Unit,
+    dtmfSequence: String = ""
+) {
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
+    
+    if (isVisible) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            modifier = Modifier.fillMaxWidth(),
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            shape = MaterialTheme.shapes.small
+                        )
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Title and DTMF sequence display
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Keypad",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    
+                    if (dtmfSequence.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                    shape = MaterialTheme.shapes.medium
+                                )
+                                .padding(vertical = 12.dp, horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Entered: ",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = dtmfSequence,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 4.sp
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // Keypad Grid
+                KeypadGrid(
+                    onKeyPressed = onKeyPressed
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Close button
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                ) {
+                    Text(
+                        text = "Close",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontSize = 16.sp
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun KeypadGrid(
+    onKeyPressed: (Char) -> Unit
+) {
+    val keys = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf("*", "0", "#")
+    )
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        keys.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                row.forEach { key ->
+                    KeypadButton(
+                        key = key,
+                        onClick = { onKeyPressed(key[0]) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun KeypadButton(
+    key: String,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .size(80.dp),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 2.dp,
+            pressedElevation = 4.dp
+        )
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = key,
+                style = MaterialTheme.typography.headlineMedium,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+            // Show letters for some keys
+            if (key == "2") {
+                Text("ABC", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            } else if (key == "3") {
+                Text("DEF", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            } else if (key == "4") {
+                Text("GHI", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            } else if (key == "5") {
+                Text("JKL", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            } else if (key == "6") {
+                Text("MNO", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            } else if (key == "7") {
+                Text("PQRS", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            } else if (key == "8") {
+                Text("TUV", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            } else if (key == "9") {
+                Text("WXYZ", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            }
+        }
     }
 }
 
