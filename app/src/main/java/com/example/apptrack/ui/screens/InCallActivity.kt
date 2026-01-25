@@ -192,6 +192,7 @@ fun InCallScreen(
     var callDuration by remember { mutableStateOf(0L) }
     var isCallActive by remember { mutableStateOf(false) }
     var contactPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    var isOnHold by remember { mutableStateOf(false) }
     
     // Load contact photo
     LaunchedEffect(phoneNumber) {
@@ -208,202 +209,261 @@ fun InCallScreen(
             
             val activeCall = CallControlManager.getActiveCall()
             isCallActive = activeCall?.state == Call.STATE_ACTIVE || callDuration > 0
+            isOnHold = activeCall?.state == Call.STATE_HOLDING
         }
     }
     
-    Column(
+    // Dark background like the image
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(Color(0xFF1A1A1A)) // Dark gray/black background
     ) {
-        Spacer(modifier = Modifier.height(48.dp))
-        
-        // Contact Photo/Avatar - Large circular
-        Box(
+        Column(
             modifier = Modifier
-                .size(200.dp)
-                .clip(CircleShape)
-                .background(
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                ),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (contactPhoto != null) {
-                Image(
-                    bitmap = contactPhoto!!.asImageBitmap(),
-                    contentDescription = "Contact photo",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                // Show initials or first letter
-                val displayText = if (contactName != null) {
-                    contactName.take(2).uppercase()
-                } else if (phoneNumber.isNotEmpty()) {
-                    phoneNumber.takeLast(2)
+            Spacer(modifier = Modifier.height(60.dp))
+            
+            // Contact Photo/Avatar - Large circular
+            Box(
+                modifier = Modifier
+                    .size(180.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2A2A2A)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (contactPhoto != null) {
+                    Image(
+                        bitmap = contactPhoto!!.asImageBitmap(),
+                        contentDescription = "Contact photo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 } else {
-                    "?"
+                    // Show initials
+                    val displayText = if (contactName != null) {
+                        contactName.split(" ").take(2).joinToString("") { it.firstOrNull()?.toString() ?: "" }.uppercase()
+                    } else if (phoneNumber.isNotEmpty()) {
+                        phoneNumber.takeLast(2)
+                    } else {
+                        "?"
+                    }
+                    Text(
+                        text = displayText,
+                        style = MaterialTheme.typography.displayLarge,
+                        fontSize = 64.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
                 }
-                Text(
-                    text = displayText,
-                    style = MaterialTheme.typography.displayLarge,
-                    fontSize = 72.sp,
-                    fontWeight = FontWeight.Light,
-                    color = MaterialTheme.colorScheme.primary
-                )
             }
-        }
-        
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Contact Name
-        Text(
-            text = contactName ?: phoneNumber,
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Normal,
-            fontSize = 32.sp,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // Phone Number (if contact name exists)
-        if (contactName != null && phoneNumber.isNotEmpty()) {
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // Call type indicator (e.g., "Via Google Voice Wi-Fi call")
             Text(
-                text = formatPhoneNumber(phoneNumber),
-                style = MaterialTheme.typography.bodyLarge,
-                fontSize = 18.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                text = when (callType) {
+                    CallType.INCOMING -> "Incoming call"
+                    CallType.OUTGOING -> "Outgoing call"
+                    else -> "Phone call"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
             )
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Call Status/Duration
-        Text(
-            text = when {
-                !isCallActive && callType == CallType.INCOMING -> "Incoming call"
-                !isCallActive && callType == CallType.OUTGOING -> "Calling..."
-                isCallActive && callDuration > 0 -> formatCallDurationTimer(callDuration)
-                else -> ""
-            },
-            style = MaterialTheme.typography.titleMedium,
-            fontSize = 16.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        // Call Controls
-        if (callType == CallType.INCOMING && !isCallActive) {
-            // Incoming call - Answer/Reject buttons
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 48.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                // Reject Button
-                FloatingActionButton(
-                    onClick = onReject,
-                    containerColor = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Reject",
-                        modifier = Modifier.size(32.dp),
-                        tint = Color.White
-                    )
-                }
-                
-                // Answer Button
-                FloatingActionButton(
-                    onClick = onAnswer,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Phone,
-                        contentDescription = "Answer",
-                        modifier = Modifier.size(32.dp),
-                        tint = Color.White
-                    )
-                }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Contact Name - Prominently displayed
+            Text(
+                text = contactName ?: formatPhoneNumber(phoneNumber),
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Normal,
+                fontSize = 28.sp,
+                textAlign = TextAlign.Center,
+                color = Color.White
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Phone Number (if contact name exists)
+            if (contactName != null && phoneNumber.isNotEmpty()) {
+                Text(
+                    text = formatPhoneNumber(phoneNumber),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp,
+                    color = Color.White.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
             }
-        } else {
-            // Active call - Full controls (Google Phone style)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                // Control buttons row (Mute, Keypad, Speaker, Add Call, Hold)
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // Call Duration
+            if (isCallActive && callDuration > 0) {
+                Text(
+                    text = formatCallDurationTimer(callDuration),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 16.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center
+                )
+            } else if (!isCallActive) {
+                Text(
+                    text = when (callType) {
+                        CallType.INCOMING -> "Incoming call"
+                        CallType.OUTGOING -> "Calling..."
+                        else -> ""
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 16.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center
+                )
+            }
+            
+            Spacer(modifier = Modifier.weight(1f))
+            
+            // Call Controls
+            if (callType == CallType.INCOMING && !isCallActive) {
+                // Incoming call - Answer/Reject buttons
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 48.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    // Mute Button
-                    ControlButtonWithText(
-                        iconText = if (isMuted) "🔇" else "🎤",
-                        label = "Mute",
-                        isActive = isMuted,
-                        onClick = {
-                            isMuted = CallControlManager.toggleMute()
-                        }
-                    )
+                    // Reject Button
+                    FloatingActionButton(
+                        onClick = onReject,
+                        containerColor = Color(0xFF424242),
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Reject",
+                            modifier = Modifier.size(32.dp),
+                            tint = Color.White
+                        )
+                    }
                     
-                    // Keypad Button
-                    ControlButtonWithText(
-                        iconText = "⌨️",
-                        label = "Keypad",
-                        isActive = false,
-                        onClick = { /* TODO: Show keypad */ }
-                    )
-                    
-                    // Speaker Button
-                    ControlButtonWithText(
-                        iconText = if (isSpeakerOn) "🔊" else "📢",
-                        label = "Speaker",
-                        isActive = isSpeakerOn,
-                        onClick = {
-                            isSpeakerOn = CallControlManager.toggleSpeaker()
-                        }
-                    )
+                    // Answer Button
+                    FloatingActionButton(
+                        onClick = onAnswer,
+                        containerColor = Color(0xFF4CAF50),
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Phone,
+                            contentDescription = "Answer",
+                            modifier = Modifier.size(32.dp),
+                            tint = Color.White
+                        )
+                    }
                 }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                // End Call Button - Large button with pure red horizontally flipped phone icon
-                FloatingActionButton(
-                    onClick = onEndCall,
-                    containerColor = MaterialTheme.colorScheme.background, // Same as screen background
-                    modifier = Modifier.size(72.dp)
+            } else {
+                // Active call - Control buttons in 2x2 grid
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(32.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Phone,
-                        contentDescription = "End Call",
-                        modifier = Modifier
-                            .size(36.dp)
-                            .graphicsLayer {
-                                scaleX = -1f // Flip horizontally only, no tilt
-                            },
-                        tint = Color(0xFFFF0000) // Pure red icon
-                    )
+                    // First row: Mute, Keypad
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        ControlButtonWithIcon(
+                            iconText = if (isMuted) "🔇" else "🎤",
+                            label = "Mute",
+                            isActive = isMuted,
+                            onClick = {
+                                isMuted = CallControlManager.toggleMute()
+                            }
+                        )
+                        
+                        ControlButtonWithIcon(
+                            iconText = "⌨️",
+                            label = "Keypad",
+                            isActive = false,
+                            onClick = { /* TODO: Show keypad */ }
+                        )
+                    }
+                    
+                    // Second row: Speaker, Hold
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        ControlButtonWithIcon(
+                            iconText = if (isSpeakerOn) "🔊" else "📢",
+                            label = "Speaker",
+                            isActive = isSpeakerOn,
+                            onClick = {
+                                isSpeakerOn = CallControlManager.toggleSpeaker()
+                            }
+                        )
+                        
+                        ControlButtonWithIcon(
+                            iconText = "⏸️",
+                            label = "Hold",
+                            isActive = isOnHold,
+                            onClick = {
+                                if (isOnHold) {
+                                    CallControlManager.unholdCall()
+                                    isOnHold = false
+                                } else {
+                                    CallControlManager.holdCall()
+                                    isOnHold = true
+                                }
+                            }
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // End Call Button - Large red circular button
+                    FloatingActionButton(
+                        onClick = onEndCall,
+                        containerColor = Color(0xFFE53935), // Red color
+                        modifier = Modifier.size(72.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Phone,
+                            contentDescription = "End Call",
+                            modifier = Modifier
+                                .size(36.dp)
+                                .graphicsLayer {
+                                    scaleX = -1f // Flip horizontally
+                                },
+                            tint = Color.White
+                        )
+                    }
                 }
             }
+            
+            // App branding at bottom
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "AppTrack",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-fun ControlButtonWithText(
+fun ControlButtonWithIcon(
     iconText: String,
     label: String,
     isActive: Boolean,
@@ -411,7 +471,8 @@ fun ControlButtonWithText(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.width(IntrinsicSize.Min)
     ) {
         IconButton(
             onClick = onClick,
@@ -419,23 +480,25 @@ fun ControlButtonWithText(
                 .size(64.dp)
                 .background(
                     color = if (isActive) 
-                        MaterialTheme.colorScheme.primaryContainer 
+                        Color(0xFF4CAF50).copy(alpha = 0.3f) // Green tint when active
                     else 
-                        MaterialTheme.colorScheme.surfaceVariant,
+                        Color(0xFF424242), // Dark gray when inactive
                     shape = CircleShape
                 )
         ) {
             Text(
                 text = iconText,
                 style = MaterialTheme.typography.headlineMedium,
-                fontSize = 28.sp
+                fontSize = 28.sp,
+                color = if (isActive) Color(0xFF4CAF50) else Color.White
             )
         }
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            color = Color.White.copy(alpha = 0.8f),
+            textAlign = TextAlign.Center
         )
     }
 }
