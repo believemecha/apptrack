@@ -402,25 +402,65 @@ fun InCallScreen(
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         ControlButtonWithIcon(
-                            iconText = if (isSpeakerOn) "🔊" else "📢",
+                            iconText = if (isSpeakerOn) "🔊" else "📱", // 🔊 when on, 📱 when off - very clear difference
                             label = "Speaker",
                             isActive = isSpeakerOn,
                             onClick = {
-                                isSpeakerOn = CallControlManager.toggleSpeaker()
+                                val targetState = !isSpeakerOn
+                                // Update UI immediately for visual feedback
+                                isSpeakerOn = targetState
+                                
+                                // 1. Immediate request via InCallService
+                                CallControlManager.setSpeaker(targetState)
+                                
+                                // 2. Delayed "Force" request (Crucial for MIUI/Samsung)
+                                // The system often resets audio route 200-500ms after the call connects
+                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                    CallControlManager.setSpeaker(targetState)
+                                    // Sync with actual state
+                                    isSpeakerOn = CallControlManager.isSpeakerOn()
+                                }, 500)
+                                
+                                // Also sync after a longer delay to ensure it stuck
+                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                    isSpeakerOn = CallControlManager.isSpeakerOn()
+                                }, 1000)
                             }
                         )
                         
                         ControlButtonWithIcon(
-                            iconText = "⏸️",
+                            iconText = if (isOnHold) "▶️" else "⏸️", // Play icon when on hold, pause when not
                             label = "Hold",
                             isActive = isOnHold,
                             onClick = {
-                                if (isOnHold) {
-                                    CallControlManager.unholdCall()
-                                    isOnHold = false
+                                val activeCall = CallControlManager.getActiveCall()
+                                if (activeCall != null) {
+                                    try {
+                                        if (isOnHold) {
+                                            // Unhold the call
+                                            activeCall.unhold()
+                                            isOnHold = false
+                                            Log.d("InCallActivity", "Call unhold requested")
+                                        } else {
+                                            // Hold the call - check if supported
+                                            if (activeCall.details.hasProperty(Call.Details.CAPABILITY_SUPPORT_HOLD)) {
+                                                activeCall.hold()
+                                                isOnHold = true
+                                                Log.d("InCallActivity", "Call hold requested")
+                                            } else {
+                                                Log.w("InCallActivity", "Call does not support hold capability")
+                                            }
+                                        }
+                                        // Sync from actual call state after a delay
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            val updatedCall = CallControlManager.getActiveCall()
+                                            isOnHold = updatedCall?.state == Call.STATE_HOLDING
+                                        }, 300)
+                                    } catch (e: Exception) {
+                                        Log.e("InCallActivity", "Error toggling hold: ${e.message}", e)
+                                    }
                                 } else {
-                                    CallControlManager.holdCall()
-                                    isOnHold = true
+                                    Log.w("InCallActivity", "No active call to hold/unhold")
                                 }
                             }
                         )
@@ -480,7 +520,7 @@ fun ControlButtonWithIcon(
                 .size(64.dp)
                 .background(
                     color = if (isActive) 
-                        Color(0xFF4CAF50).copy(alpha = 0.3f) // Green tint when active
+                        Color(0xFF4CAF50).copy(alpha = 0.5f) // More visible green tint when active
                     else 
                         Color(0xFF424242), // Dark gray when inactive
                     shape = CircleShape
@@ -490,15 +530,16 @@ fun ControlButtonWithIcon(
                 text = iconText,
                 style = MaterialTheme.typography.headlineMedium,
                 fontSize = 28.sp,
-                color = if (isActive) Color(0xFF4CAF50) else Color.White
+                color = if (isActive) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.9f)
             )
         }
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             fontSize = 12.sp,
-            color = Color.White.copy(alpha = 0.8f),
-            textAlign = TextAlign.Center
+            color = if (isActive) Color(0xFF4CAF50).copy(alpha = 0.9f) else Color.White.copy(alpha = 0.8f),
+            textAlign = TextAlign.Center,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
         )
     }
 }

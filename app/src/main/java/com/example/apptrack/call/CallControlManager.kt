@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.telecom.Call
+import android.telecom.CallAudioState
 import android.telecom.InCallService
 import android.telecom.VideoProfile
 import android.util.Log
@@ -71,54 +72,70 @@ object CallControlManager {
         return isMutedState
     }
     
-    fun toggleSpeaker(): Boolean {
+    fun setSpeaker(isOn: Boolean): Boolean {
+        val service = getInCallService()
+        if (service != null) {
+            try {
+                val route = if (isOn) {
+                    CallAudioState.ROUTE_SPEAKER
+                } else {
+                    CallAudioState.ROUTE_WIRED_OR_EARPIECE
+                }
+                Log.d(TAG, "Setting audio route via InCallService: $route (isOn: $isOn)")
+                service.setAudioRoute(route)
+                
+                // Verify the state was set
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val currentRoute = service.callAudioState?.route ?: -1
+                    Log.d(TAG, "Current audio route after set: $currentRoute (expected: $route)")
+                }, 200)
+                
+                return true
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception setting audio route via InCallService: ${e.message}", e)
+                // Fallback to AudioManager
+                return setSpeakerFallback(isOn)
+            }
+        } else {
+            Log.w(TAG, "InCallService is null, using AudioManager fallback")
+            // Fallback for non-default dialer mode
+            return setSpeakerFallback(isOn)
+        }
+    }
+    
+    private fun setSpeakerFallback(isOn: Boolean): Boolean {
         audioManager?.let { am ->
             try {
-                // Ensure we're in call mode for speaker to work
-                val currentMode = am.mode
-                if (currentMode != AudioManager.MODE_IN_CALL) {
-                    Log.d(TAG, "Setting audio mode to MODE_IN_CALL (was: $currentMode)")
-                    am.mode = AudioManager.MODE_IN_CALL
-                }
-                
-                val isSpeakerOn = am.isSpeakerphoneOn
-                val newSpeakerState = !isSpeakerOn
-                
-                Log.d(TAG, "Toggling speaker from $isSpeakerOn to $newSpeakerState")
-                
-                // Set speakerphone state
-                am.isSpeakerphoneOn = newSpeakerState
-                
-                // Force audio routing update by toggling mode
-                // This ensures the audio routing change takes effect
-                Handler(Looper.getMainLooper()).postDelayed({
-                    am.mode = AudioManager.MODE_IN_CALL
-                }, 50)
-                
-                // Verify the state was actually set
-                val actualState = am.isSpeakerphoneOn
-                Log.d(TAG, "Speaker state after toggle: $actualState (expected: $newSpeakerState)")
-                
-                if (actualState != newSpeakerState) {
-                    Log.w(TAG, "Warning: Speaker state mismatch! Retrying...")
-                    // Retry once
-                    am.isSpeakerphoneOn = newSpeakerState
-                }
-                
+                am.isSpeakerphoneOn = isOn
+                Log.d(TAG, "Set speakerphone via AudioManager fallback: $isOn")
                 return am.isSpeakerphoneOn
-            } catch (e: SecurityException) {
-                Log.e(TAG, "SecurityException when toggling speaker: ${e.message}", e)
-                return false
             } catch (e: Exception) {
-                Log.e(TAG, "Exception when toggling speaker: ${e.message}", e)
-                return false
+                Log.e(TAG, "Exception in fallback: ${e.message}", e)
             }
         }
-        Log.w(TAG, "AudioManager is null, cannot toggle speaker")
         return false
     }
     
+    fun toggleSpeaker(): Boolean {
+        val currentState = isSpeakerOn()
+        val newState = !currentState
+        Log.d(TAG, "Toggling speaker from $currentState to $newState")
+        return setSpeaker(newState)
+    }
+    
     fun isSpeakerOn(): Boolean {
+        val service = getInCallService()
+        if (service != null) {
+            try {
+                val currentRoute = service.callAudioState?.route ?: -1
+                val isOn = currentRoute == CallAudioState.ROUTE_SPEAKER
+                Log.d(TAG, "Speaker state from InCallService: $isOn (route: $currentRoute)")
+                return isOn
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception getting audio route: ${e.message}", e)
+            }
+        }
+        // Fallback to AudioManager
         return audioManager?.isSpeakerphoneOn ?: false
     }
     
