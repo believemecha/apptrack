@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -54,6 +55,15 @@ class InCallActivity : ComponentActivity() {
             return
         }
         
+        // Enable showing over lock screen and turn screen on
+        // This allows the call UI to appear even when phone is locked
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
+        
         // Initialize CallControlManager if not already done
         CallControlManager.initialize(this)
         
@@ -64,34 +74,70 @@ class InCallActivity : ComponentActivity() {
         
         val checkForCall = object : Runnable {
             override fun run() {
-                val inCallService = CallControlManager.getInCallService()
-                val activeCall = inCallService?.calls?.firstOrNull { 
-                    it.state == Call.STATE_ACTIVE || 
-                    it.state == Call.STATE_DIALING || 
-                    it.state == Call.STATE_RINGING ||
-                    it.state == Call.STATE_CONNECTING
-                }
-                
-                if (activeCall != null) {
-                    Log.d(TAG, "Active call found, registering callback")
-                    activeCall.registerCallback(object : Call.Callback() {
-                        override fun onStateChanged(call: Call, state: Int) {
-                            Log.d(TAG, "Call state changed in activity: $state")
-                            if (state == Call.STATE_DISCONNECTED) {
-                                Log.d(TAG, "Call disconnected, closing activity")
-                                runOnUiThread {
-                                    finish()
-                                }
-                            }
+                try {
+                    val inCallService = CallControlManager.getInCallService()
+                    if (inCallService == null) {
+                        Log.w(TAG, "InCallService is null, will retry...")
+                        checkCount++
+                        if (checkCount < maxChecks) {
+                            handler.postDelayed(this, 500)
+                        } else {
+                            Log.w(TAG, "InCallService still null after $maxChecks checks, keeping activity open")
                         }
-                    }, android.os.Handler(android.os.Looper.getMainLooper()))
-                } else {
+                        return
+                    }
+                    
+                    val activeCall = inCallService.calls?.firstOrNull { 
+                        try {
+                            val state = it.state
+                            state == Call.STATE_ACTIVE || 
+                            state == Call.STATE_DIALING || 
+                            state == Call.STATE_RINGING ||
+                            state == Call.STATE_CONNECTING
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error checking call state: ${e.message}", e)
+                            false
+                        }
+                    }
+                    
+                    if (activeCall != null) {
+                        Log.d(TAG, "Active call found, registering callback")
+                        try {
+                            activeCall.registerCallback(object : Call.Callback() {
+                                override fun onStateChanged(call: Call, state: Int) {
+                                    Log.d(TAG, "Call state changed in activity: $state")
+                                    if (state == Call.STATE_DISCONNECTED) {
+                                        Log.d(TAG, "Call disconnected, closing activity")
+                                        runOnUiThread {
+                                            if (!isFinishing) {
+                                                try {
+                                                    finish()
+                                                } catch (e: Exception) {
+                                                    Log.e(TAG, "Error finishing activity: ${e.message}", e)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }, android.os.Handler(android.os.Looper.getMainLooper()))
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error registering call callback: ${e.message}", e)
+                        }
+                    } else {
+                        checkCount++
+                        if (checkCount < maxChecks) {
+                            Log.d(TAG, "No active call found yet, checking again... ($checkCount/$maxChecks)")
+                            handler.postDelayed(this, 500)
+                        } else {
+                            Log.d(TAG, "No active call found after $maxChecks checks, keeping activity open")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in checkForCall: ${e.message}", e)
+                    // Don't crash - just retry
                     checkCount++
                     if (checkCount < maxChecks) {
-                        Log.d(TAG, "No active call found yet, checking again... ($checkCount/$maxChecks)")
                         handler.postDelayed(this, 500)
-                    } else {
-                        Log.d(TAG, "No active call found after $maxChecks checks, keeping activity open")
                     }
                 }
             }

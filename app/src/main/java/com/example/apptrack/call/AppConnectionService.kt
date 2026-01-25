@@ -61,7 +61,7 @@ class AppConnectionService : ConnectionService() {
         connectionManagerPhoneAccount: PhoneAccountHandle?,
         request: ConnectionRequest?
     ): Connection {
-        Log.d(TAG, "onCreateIncomingConnection: ${request?.address}")
+        Log.d(TAG, "onCreateIncomingConnection: ${request?.address}, account: $connectionManagerPhoneAccount")
         
         if (request == null) {
             Log.e(TAG, "ConnectionRequest is null!")
@@ -75,14 +75,32 @@ class AppConnectionService : ConnectionService() {
             return connection
         }
         
+        val phoneNumber = request.address?.schemeSpecificPart ?: ""
+        Log.d(TAG, "Creating incoming connection for: $phoneNumber")
+        
         val connection = AppConnection(request.address, true)
-        // Set required capabilities
+        
+        // Set required capabilities - keep it simple and standard
         connection.setConnectionCapabilities(
             Connection.CAPABILITY_HOLD or
             Connection.CAPABILITY_SUPPORT_HOLD or
             Connection.CAPABILITY_MUTE
         )
+        
+        // Set audio state - this is critical for incoming calls
+        connection.setAudioModeIsVoip(false) // Regular phone call, not VoIP
+        
+        // IMPORTANT: Set ringing state AFTER setting capabilities and audio mode
+        // This tells the system the call is ringing and ready to be answered
         connection.setRinging()
+        
+        Log.d(TAG, "Connection set to RINGING state for $phoneNumber")
+        
+        // Launch incoming call UI immediately - even when app is closed or phone is locked
+        // Use a small delay to ensure connection is properly set up
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            launchIncomingCallActivity(phoneNumber)
+        }, 100)
         
         return connection
     }
@@ -108,19 +126,39 @@ class AppConnectionService : ConnectionService() {
                 setConnectionCapabilities(Connection.CAPABILITY_HOLD)
             }
             
+            // Set audio state - important for call handling
+            setAudioModeIsVoip(false) // Regular phone call
+            
             // Store connection when active
             if (phoneNumber.isNotEmpty()) {
                 activeConnections[phoneNumber] = this
             }
+            
+            Log.d(TAG, "AppConnection created for $phoneNumber (incoming: $isIncoming)")
         }
         
         override fun onAnswer() {
-            Log.d(TAG, "onAnswer")
-            setActive()
-            // Start call timer when call is answered
-            CallControlManager.startCallTimer()
-            // Launch in-call UI when call is answered
-            launchInCallActivity(address?.schemeSpecificPart ?: "", isIncoming)
+            Log.d(TAG, "onAnswer - answering call for $phoneNumber")
+            try {
+                // Initialize CallControlManager if needed
+                CallControlManager.initialize(this@AppConnectionService)
+                
+                // Set audio mode for call
+                CallControlManager.setAudioModeInCall()
+                
+                // Set connection to active
+                setActive()
+                
+                // Start call timer when call is answered
+                CallControlManager.startCallTimer()
+                
+                // Launch in-call UI when call is answered
+                launchInCallActivity(address?.schemeSpecificPart ?: "", isIncoming)
+                
+                Log.d(TAG, "Call answered successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error answering call: ${e.message}", e)
+            }
         }
         
         override fun onReject() {
@@ -151,6 +189,25 @@ class AppConnectionService : ConnectionService() {
         override fun onUnhold() {
             Log.d(TAG, "onUnhold")
             setActive()
+        }
+    }
+    
+    private fun launchIncomingCallActivity(phoneNumber: String) {
+        try {
+            val intent = Intent(this, InCallActivity::class.java).apply {
+                // Critical flags to show over lock screen and wake up device
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or 
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                        Intent.FLAG_ACTIVITY_NO_HISTORY
+                putExtra("phoneNumber", phoneNumber)
+                putExtra("callType", "INCOMING")
+            }
+            startActivity(intent)
+            Log.d(TAG, "Launched incoming call UI for $phoneNumber")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch incoming call UI: ${e.message}", e)
         }
     }
     

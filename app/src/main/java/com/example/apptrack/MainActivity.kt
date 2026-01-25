@@ -15,6 +15,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -63,9 +64,16 @@ fun CallManagementApp(activity: ComponentActivity) {
     // Navigation state
     var showDialer by remember { mutableStateOf(false) }
     var showSetDefaultDialog by remember { mutableStateOf(false) }
+    var showOverlayPermissionDialog by remember { mutableStateOf(false) }
     
     // Track permission grant state - make it reactive
     var permissionsGranted by remember { mutableStateOf(false) }
+    var overlayPermissionGranted by remember { mutableStateOf(false) }
+    var isDefaultPhoneApp by remember { mutableStateOf(false) }
+    var justOpenedSettings by remember { mutableStateOf(false) } // Flag to prevent immediate re-check
+    
+    // MIUI-specific permissions (these can't be checked via API, so we guide user to settings)
+    // We'll show dialogs to guide users to grant these after overlay permission
     
     // Check if permissions are granted - re-check when needed
     fun checkPermissions(): Boolean {
@@ -87,9 +95,75 @@ fun CallManagementApp(activity: ComponentActivity) {
         return hasPhoneStatePermission && hasCallLogPermission && hasCallPhonePermission
     }
     
+    // Check SYSTEM_ALERT_WINDOW permission (for showing call UI over lock screen)
+    fun checkOverlayPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true // Not needed on older versions
+        }
+    }
+    
+    // Check if app is set as default phone app
+    fun checkDefaultPhoneApp(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            callManager.isDefaultPhoneApp()
+        } else {
+            true // Not needed on older versions
+        }
+    }
+    
+    // Function to check and show permission dialogs in sequence
+    fun checkAndRequestPermissions() {
+        permissionsGranted = checkPermissions()
+        overlayPermissionGranted = checkOverlayPermission()
+        isDefaultPhoneApp = checkDefaultPhoneApp()
+        
+        // Sequential permission requests:
+        // 1. First check overlay permission (Display over other apps)
+        // 2. Then check default phone app (only after overlay is granted)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!overlayPermissionGranted) {
+                // Show overlay permission dialog first
+                showOverlayPermissionDialog = true
+                showSetDefaultDialog = false
+            } else if (!isDefaultPhoneApp) {
+                // Overlay is granted, now check default phone app
+                showOverlayPermissionDialog = false
+                showSetDefaultDialog = true
+            } else {
+                // All permissions granted
+                showOverlayPermissionDialog = false
+                showSetDefaultDialog = false
+            }
+        }
+    }
+    
     // Re-check permissions periodically and when app resumes
     LaunchedEffect(Unit) {
-        permissionsGranted = checkPermissions()
+        checkAndRequestPermissions()
+    }
+    
+    // Re-check permissions when activity resumes (user might have granted them in settings)
+    LaunchedEffect(Unit) {
+        activity.lifecycle.addObserver(object : LifecycleEventObserver {
+            override fun onStateChanged(source: androidx.lifecycle.LifecycleOwner, event: androidx.lifecycle.Lifecycle.Event) {
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                    // Don't re-check immediately if we just opened settings - wait a bit
+                    if (justOpenedSettings) {
+                        // Clear the flag after a delay
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            justOpenedSettings = false
+                            // Now re-check permissions
+                            checkAndRequestPermissions()
+                        }, 1000) // Wait 1 second after returning from settings
+                    } else {
+                        // Normal resume - re-check immediately
+                        checkAndRequestPermissions()
+                    }
+                }
+            }
+        })
     }
     
     val allPermissionsGranted = remember(permissionsGranted) { permissionsGranted }
@@ -216,7 +290,7 @@ fun CallManagementApp(activity: ComponentActivity) {
                     text = "Permissions Required",
                     style = MaterialTheme.typography.headlineSmall
                 )
-                Text(
+    Text(
                     text = "This app needs phone, call log, and call permissions to manage calls",
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -271,52 +345,87 @@ fun CallManagementApp(activity: ComponentActivity) {
                 onBack = { showDialer = false }
             )
             
-            // Dialog to set app as default phone app
-            if (showSetDefaultDialog) {
+            // Dialog to set app as default phone app (only show if overlay permission is granted)
+            if (showSetDefaultDialog && overlayPermissionGranted) {
                 AlertDialog(
-                    onDismissRequest = { showSetDefaultDialog = false },
+                    onDismissRequest = { 
+                        showSetDefaultDialog = false
+                        // Re-check permissions
+                        checkAndRequestPermissions()
+                    },
                     title = { Text("Set as Default Phone App") },
                     text = { 
-                        Text("This app needs to be set as the default phone app to make calls. Please set it as default in settings.")
+                        Text("This app needs to be set as the default phone app to handle incoming and outgoing calls. Please set it as default in settings.")
                     },
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                Log.d("MainActivity", "Open Settings button clicked")
+                                Log.d("MainActivity", "Request default dialer role")
+                                // Close dialog FIRST to prevent immediate re-show
+                                showSetDefaultDialog = false
+                                
+                                // Set flag to prevent immediate re-check
+                                justOpenedSettings = true
+                                
+                                // Always try to open settings - more reliable approach
                                 try {
-                                    // Open default apps settings directly - more reliable
-                                    val settingsIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                    }
-                                    Log.d("MainActivity", "Opening default apps settings")
+                                    Log.d("MainActivity", "Attempting to open default apps settings")
                                     
-                                    // Check if intent can be resolved
-                                    val resolveInfo = activity.packageManager.resolveActivity(settingsIntent, PackageManager.MATCH_DEFAULT_ONLY)
-                                    if (resolveInfo != null) {
-                                        Log.d("MainActivity", "Default apps settings intent can be resolved")
-                                        activity.startActivity(settingsIntent)
-                                        Log.d("MainActivity", "Default apps settings opened")
-                                    } else {
-                                        Log.w("MainActivity", "Default apps settings cannot be resolved, trying app settings")
-                                        // Fallback to app settings
-                                        val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            data = Uri.fromParts("package", activity.packageName, null)
+                                    // First try: Use RoleManager (Android 10+) - this shows a system dialog
+                                    val roleRequested = callManager.requestDefaultDialerRole()
+                                    Log.d("MainActivity", "RoleManager request result: $roleRequested")
+                                    
+                                    // Also try to open settings directly as a backup
+                                    // This ensures user can navigate to settings even if RoleManager dialog doesn't show
+                                    try {
+                                        val settingsIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
                                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                         }
-                                        activity.startActivity(appSettingsIntent)
+                                        
+                                        // Check if intent can be resolved
+                                        val resolveInfo = activity.packageManager.resolveActivity(settingsIntent, PackageManager.MATCH_DEFAULT_ONLY)
+                                        if (resolveInfo != null) {
+                                            Log.d("MainActivity", "Default apps settings intent can be resolved, opening...")
+                                            activity.startActivity(settingsIntent)
+                                            Log.d("MainActivity", "Opened default apps settings successfully")
+                                        } else {
+                                            Log.w("MainActivity", "Default apps settings intent cannot be resolved, trying app settings")
+                                            // Last resort: Open app-specific settings
+                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.fromParts("package", activity.packageName, null)
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            activity.startActivity(appSettingsIntent)
+                                            Log.d("MainActivity", "Opened app settings as fallback")
+                                        }
+                                    } catch (settingsException: Exception) {
+                                        Log.e("MainActivity", "Failed to open settings: ${settingsException.message}", settingsException)
+                                        // If settings can't be opened, clear flag and re-check
+                                        justOpenedSettings = false
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            checkAndRequestPermissions()
+                                        }, 1000)
                                     }
                                 } catch (e: Exception) {
                                     Log.e("MainActivity", "Failed to open settings: ${e.message}", e)
                                     e.printStackTrace()
+                                    justOpenedSettings = false // Clear flag if settings can't be opened
+                                    // Show error to user
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        checkAndRequestPermissions()
+                                    }, 1000)
                                 }
-                                showSetDefaultDialog = false
                             }
                         ) {
-                            Text("Open Settings")
+                            Text("Set as Default")
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showSetDefaultDialog = false }) {
+                        TextButton(onClick = { 
+                            showSetDefaultDialog = false
+                            // Re-check permissions - will show again if still not set
+                            checkAndRequestPermissions()
+                        }) {
                             Text("Cancel")
                         }
                     }
@@ -349,44 +458,235 @@ fun CallManagementApp(activity: ComponentActivity) {
                 onRejectCall = { callManager.rejectCall() }
             )
             
-            // Dialog to set app as default phone app
-            if (showSetDefaultDialog) {
+            // Dialog to set app as default phone app (only show if overlay permission is granted)
+            if (showSetDefaultDialog && overlayPermissionGranted) {
                 AlertDialog(
-                    onDismissRequest = { showSetDefaultDialog = false },
+                    onDismissRequest = { 
+                        showSetDefaultDialog = false
+                        // Re-check permissions
+                        checkAndRequestPermissions()
+                    },
                     title = { Text("Set as Default Phone App") },
                     text = { 
-                        Text("This app needs to be set as the default phone app to make calls. Click 'Set as Default' to open the system dialog.")
+                        Text("This app needs to be set as the default phone app to handle incoming and outgoing calls. Please set it as default in settings.")
                     },
                     confirmButton = {
                         TextButton(
                             onClick = {
                                 Log.d("MainActivity", "Request default dialer role")
-                                // Use RoleManager to request dialer role - this will show the app in the list
-                                val requested = callManager.requestDefaultDialerRole()
-                                if (!requested) {
-                                    // Fallback to opening settings
+                                // Close dialog FIRST to prevent immediate re-show
+                                showSetDefaultDialog = false
+                                
+                                // Set flag to prevent immediate re-check
+                                justOpenedSettings = true
+                                
+                                // Always try to open settings - more reliable approach
+                                try {
+                                    Log.d("MainActivity", "Attempting to open default apps settings")
+                                    
+                                    // First try: Use RoleManager (Android 10+) - this shows a system dialog
+                                    val roleRequested = callManager.requestDefaultDialerRole()
+                                    Log.d("MainActivity", "RoleManager request result: $roleRequested")
+                                    
+                                    // Also try to open settings directly as a backup
+                                    // This ensures user can navigate to settings even if RoleManager dialog doesn't show
                                     try {
                                         val settingsIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
                                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                         }
-                                        activity.startActivity(settingsIntent)
-                                    } catch (e: Exception) {
-                                        Log.e("MainActivity", "Failed to open settings: ${e.message}", e)
+                                        
+                                        // Check if intent can be resolved
+                                        val resolveInfo = activity.packageManager.resolveActivity(settingsIntent, PackageManager.MATCH_DEFAULT_ONLY)
+                                        if (resolveInfo != null) {
+                                            Log.d("MainActivity", "Default apps settings intent can be resolved, opening...")
+                                            activity.startActivity(settingsIntent)
+                                            Log.d("MainActivity", "Opened default apps settings successfully")
+                                        } else {
+                                            Log.w("MainActivity", "Default apps settings intent cannot be resolved, trying app settings")
+                                            // Last resort: Open app-specific settings
+                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.fromParts("package", activity.packageName, null)
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            activity.startActivity(appSettingsIntent)
+                                            Log.d("MainActivity", "Opened app settings as fallback")
+                                        }
+                                    } catch (settingsException: Exception) {
+                                        Log.e("MainActivity", "Failed to open settings: ${settingsException.message}", settingsException)
+                                        // If settings can't be opened, clear flag and re-check
+                                        justOpenedSettings = false
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            checkAndRequestPermissions()
+                                        }, 1000)
                                     }
+                                } catch (e: Exception) {
+                                    Log.e("MainActivity", "Failed to open settings: ${e.message}", e)
+                                    e.printStackTrace()
+                                    justOpenedSettings = false // Clear flag if settings can't be opened
+                                    // Show error to user
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        checkAndRequestPermissions()
+                                    }, 1000)
                                 }
-                                showSetDefaultDialog = false
                             }
                         ) {
                             Text("Set as Default")
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showSetDefaultDialog = false }) {
+                        TextButton(onClick = { 
+                            showSetDefaultDialog = false
+                            // Re-check permissions - will show again if still not set
+                            checkAndRequestPermissions()
+                        }) {
                             Text("Cancel")
                         }
                     }
                 )
             }
+            
+            // Dialog to request overlay permission (for showing call UI over lock screen)
+            if (showOverlayPermissionDialog && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                AlertDialog(
+                    onDismissRequest = { 
+                        showOverlayPermissionDialog = false
+                        // Re-check permissions - will show default phone app dialog if overlay is now granted
+                        checkAndRequestPermissions()
+                    },
+                    title = { Text("Display Over Other Apps") },
+                    text = { 
+                        Text("This app needs permission to display the call screen over the lock screen and other apps. This is required for incoming calls to show even when your phone is locked.")
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                    showOverlayPermissionDialog = false
+                                    // Re-check after a delay to see if user granted permission
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        checkAndRequestPermissions()
+                                    }, 1000)
+                                } catch (e: Exception) {
+                                    Log.e("MainActivity", "Failed to open overlay permission settings: ${e.message}", e)
+                                    // Fallback to general settings
+                                    try {
+                                        val fallbackIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(fallbackIntent)
+                                    } catch (e2: Exception) {
+                                        Log.e("MainActivity", "Failed to open settings: ${e2.message}", e2)
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("Open Settings")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { 
+                            showOverlayPermissionDialog = false
+                            // Re-check permissions - will show default phone app dialog if overlay is now granted
+                            checkAndRequestPermissions()
+                        }) {
+                            Text("Later")
+                        }
+                    }
+                )
+            }
+            
+            // Dialog to set app as default phone app (shown after overlay permission is granted)
+            if (showSetDefaultDialog && overlayPermissionGranted) {
+                AlertDialog(
+                    onDismissRequest = { 
+                        showSetDefaultDialog = false
+                        // Re-check permissions
+                        checkAndRequestPermissions()
+                    },
+                    title = { Text("Set as Default Phone App") },
+                    text = { 
+                        Text("This app needs to be set as the default phone app to handle incoming and outgoing calls. Please set it as default in settings.")
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                Log.d("MainActivity", "Request default dialer role")
+                                // Close dialog FIRST to prevent immediate re-show
+                                showSetDefaultDialog = false
+                                
+                                // Set flag to prevent immediate re-check
+                                justOpenedSettings = true
+                                
+                                // Always try to open settings - more reliable approach
+                                try {
+                                    Log.d("MainActivity", "Attempting to open default apps settings")
+                                    
+                                    // First try: Use RoleManager (Android 10+) - this shows a system dialog
+                                    val roleRequested = callManager.requestDefaultDialerRole()
+                                    Log.d("MainActivity", "RoleManager request result: $roleRequested")
+                                    
+                                    // Also try to open settings directly as a backup
+                                    // This ensures user can navigate to settings even if RoleManager dialog doesn't show
+                                    try {
+                                        val settingsIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        
+                                        // Check if intent can be resolved
+                                        val resolveInfo = activity.packageManager.resolveActivity(settingsIntent, PackageManager.MATCH_DEFAULT_ONLY)
+                                        if (resolveInfo != null) {
+                                            Log.d("MainActivity", "Default apps settings intent can be resolved, opening...")
+                                            activity.startActivity(settingsIntent)
+                                            Log.d("MainActivity", "Opened default apps settings successfully")
+                                        } else {
+                                            Log.w("MainActivity", "Default apps settings intent cannot be resolved, trying app settings")
+                                            // Last resort: Open app-specific settings
+                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.fromParts("package", activity.packageName, null)
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            activity.startActivity(appSettingsIntent)
+                                            Log.d("MainActivity", "Opened app settings as fallback")
+                                        }
+                                    } catch (settingsException: Exception) {
+                                        Log.e("MainActivity", "Failed to open settings: ${settingsException.message}", settingsException)
+                                        // If settings can't be opened, clear flag and re-check
+                                        justOpenedSettings = false
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            checkAndRequestPermissions()
+                                        }, 1000)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("MainActivity", "Failed to open settings: ${e.message}", e)
+                                    e.printStackTrace()
+                                    justOpenedSettings = false // Clear flag if settings can't be opened
+                                    // Show error to user
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        checkAndRequestPermissions()
+                                    }, 1000)
+                                }
+                            }
+                        ) {
+                            Text("Set as Default")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { 
+                            showSetDefaultDialog = false
+                            // Re-check permissions
+                            checkAndRequestPermissions()
+                        }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+            
         }
     }
 }

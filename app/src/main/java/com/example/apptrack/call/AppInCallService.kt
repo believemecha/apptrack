@@ -3,6 +3,7 @@ package com.example.apptrack.call
 import android.content.Intent
 import android.os.IBinder
 import android.telecom.Call
+import android.telecom.DisconnectCause
 import android.telecom.InCallService
 import android.util.Log
 import com.example.apptrack.ui.screens.InCallActivity
@@ -22,28 +23,72 @@ class AppInCallService : InCallService() {
     
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
-        Log.d(TAG, "onCallAdded: ${call.details.handle}, state: ${call.state}, direction: ${call.details.callDirection}")
+        val phoneNumber = call.details.handle?.schemeSpecificPart ?: ""
+        val callState = call.state
+        val direction = call.details.callDirection
         
-        // Set audio mode for call
-        CallControlManager.setAudioModeInCall()
+        Log.d(TAG, "onCallAdded: $phoneNumber, state: $callState (${getStateName(callState)}), direction: $direction")
+        Log.d(TAG, "Call capabilities: ${call.details.callCapabilities}")
+        Log.d(TAG, "Call properties: ${call.details.callProperties}")
+        
+        // Only set audio mode for incoming calls that are ringing
+        // For outgoing calls or active calls, audio is already set
+        if (direction == Call.Details.DIRECTION_INCOMING && callState == Call.STATE_RINGING) {
+            Log.d(TAG, "Incoming call ringing - setting audio mode")
+            CallControlManager.setAudioModeInCall()
+        }
         
         // Show in-call UI immediately - use a small delay to ensure service is ready
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            val intent = Intent(this, InCallActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("phoneNumber", call.details.handle?.schemeSpecificPart ?: "")
-                putExtra("callType", if (call.details.callDirection == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
-            }
             try {
+                val intent = Intent(this, InCallActivity::class.java).apply {
+                    // Critical flags to show over lock screen and bypass background start restrictions
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or 
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or 
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                            Intent.FLAG_ACTIVITY_NO_HISTORY)
+                    putExtra("phoneNumber", phoneNumber)
+                    putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
+                }
                 startActivity(intent)
-                Log.d(TAG, "InCallActivity started successfully")
+                Log.d(TAG, "InCallActivity started successfully for $phoneNumber")
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException starting InCallActivity (may need SYSTEM_ALERT_WINDOW permission): ${e.message}", e)
+                // Try again with different flags as fallback
+                try {
+                    val fallbackIntent = Intent(this, InCallActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        putExtra("phoneNumber", phoneNumber)
+                        putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
+                    }
+                    startActivity(fallbackIntent)
+                    Log.d(TAG, "InCallActivity started with fallback flags")
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Failed to start InCallActivity with fallback: ${e2.message}", e2)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start InCallActivity: ${e.message}", e)
             }
         }, 100)
         
-        // Register callbacks
+        // Register callbacks to track state changes
         call.registerCallback(callCallback)
+    }
+    
+    private fun getStateName(state: Int): String {
+        return when (state) {
+            Call.STATE_NEW -> "NEW"
+            Call.STATE_RINGING -> "RINGING"
+            Call.STATE_DIALING -> "DIALING"
+            Call.STATE_ACTIVE -> "ACTIVE"
+            Call.STATE_HOLDING -> "HOLDING"
+            Call.STATE_DISCONNECTED -> "DISCONNECTED"
+            Call.STATE_CONNECTING -> "CONNECTING"
+            Call.STATE_DISCONNECTING -> "DISCONNECTING"
+            Call.STATE_SELECT_PHONE_ACCOUNT -> "SELECT_PHONE_ACCOUNT"
+            else -> "UNKNOWN($state)"
+        }
     }
     
     override fun onCallRemoved(call: Call) {
@@ -59,15 +104,24 @@ class AppInCallService : InCallService() {
     
     private val callCallback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
-            Log.d(TAG, "Call state changed: $state")
+            val phoneNumber = call.details.handle?.schemeSpecificPart ?: ""
+            val stateName = getStateName(state)
+            Log.d(TAG, "Call state changed for $phoneNumber: $state ($stateName)")
+            
             when (state) {
+                Call.STATE_RINGING -> {
+                    Log.d(TAG, "Call is ringing - ensure audio mode is set")
+                    CallControlManager.setAudioModeInCall()
+                }
                 Call.STATE_ACTIVE -> {
                     Log.d(TAG, "Call is now active - starting timer")
                     // Call is answered/active, start the timer
                     CallControlManager.startCallTimer()
                 }
                 Call.STATE_DISCONNECTED -> {
-                    Log.d(TAG, "Call disconnected - closing InCallActivity")
+                    val disconnectCause = call.details.disconnectCause
+                    Log.d(TAG, "Call disconnected - cause: ${disconnectCause?.code} (${getDisconnectCauseName(disconnectCause?.code ?: -1)})")
+                    
                     // Call ended, stop timer and close the activity
                     CallControlManager.setAudioModeNormal()
                     
@@ -93,7 +147,21 @@ class AppInCallService : InCallService() {
         
         override fun onCallDestroyed(call: Call) {
             super.onCallDestroyed(call)
-            Log.d(TAG, "Call destroyed")
+            Log.d(TAG, "Call destroyed: ${call.details.handle?.schemeSpecificPart}")
+        }
+    }
+    
+    private fun getDisconnectCauseName(code: Int): String {
+        return when (code) {
+            DisconnectCause.ERROR -> "ERROR"
+            DisconnectCause.REJECTED -> "REJECTED"
+            DisconnectCause.REMOTE -> "REMOTE"
+            DisconnectCause.CANCELED -> "CANCELED"
+            DisconnectCause.MISSED -> "MISSED"
+            DisconnectCause.ANSWERED_ELSEWHERE -> "ANSWERED_ELSEWHERE"
+            DisconnectCause.BUSY -> "BUSY"
+            DisconnectCause.LOCAL -> "LOCAL"
+            else -> "UNKNOWN($code)"
         }
     }
     
