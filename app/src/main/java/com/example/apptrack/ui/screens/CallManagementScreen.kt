@@ -49,7 +49,7 @@ fun CallManagementScreen(
     onMakeCall: (String) -> Unit = {},
     onOpenDialer: () -> Unit = {},
     onOpenContacts: () -> Unit = {},
-    onOpenHistory: () -> Unit = {},
+    onOpenHistory: (String) -> Unit = {},
     onAnswerCall: () -> Unit = {},
     onRejectCall: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -130,14 +130,7 @@ fun CallManagementScreen(
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp
                 )
-                TextButton(onClick = onOpenHistory) {
-                    Text("History")
-                    Icon(
-                        Icons.Default.ArrowForward,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                // History button removed - now using per-row history icons
             }
             
             // Call History List
@@ -176,6 +169,7 @@ fun CallManagementScreen(
                             onBlock = { onBlockNumber(groupedCall.phoneNumber) },
                             onUnblock = { onUnblockNumber(groupedCall.phoneNumber) },
                             onCall = { onMakeCall(groupedCall.phoneNumber) },
+                            onOpenHistory = { onOpenHistory(groupedCall.phoneNumber) },
                             context = context
                         )
                     }
@@ -230,6 +224,7 @@ fun GroupedCallHistoryItem(
     onBlock: () -> Unit,
     onUnblock: () -> Unit,
     onCall: () -> Unit,
+    onOpenHistory: () -> Unit,
     context: android.content.Context
 ) {
     var contactPhoto by remember { mutableStateOf<Bitmap?>(null) }
@@ -337,6 +332,19 @@ fun GroupedCallHistoryItem(
                         )
                     }
                 }
+            }
+            
+            // History Button
+            IconButton(
+                onClick = onOpenHistory,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = "History",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.size(24.dp)
+                )
             }
             
             // Call Button

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import com.example.apptrack.call.CallManager
+import com.example.apptrack.ui.screens.CallHistoryScreen
 import com.example.apptrack.ui.screens.CallManagementScreen
 import com.example.apptrack.ui.screens.ContactsSearchScreen
 import com.example.apptrack.ui.screens.DialerScreen
@@ -435,6 +436,7 @@ fun CallManagementApp(activity: ComponentActivity) {
         } else {
             var showContacts by remember { mutableStateOf(false) }
             var showHistory by remember { mutableStateOf(false) }
+            var selectedPhoneNumber by remember { mutableStateOf<String?>(null) }
             
             if (showContacts) {
                 ContactsSearchScreen(
@@ -452,14 +454,14 @@ fun CallManagementApp(activity: ComponentActivity) {
                         }
                     }
                 )
-            } else if (showHistory) {
-                // TODO: Create HistoryScreen
-                CallManagementScreen(
-                    currentCall = null,
+            } else if (showHistory && selectedPhoneNumber != null) {
+                CallHistoryScreen(
+                    phoneNumber = selectedPhoneNumber!!,
                     callHistory = callHistory,
-                    onBlockNumber = { callManager.blockNumber(it) },
-                    onUnblockNumber = { callManager.unblockNumber(it) },
-                    isBlocked = { callManager.isBlocked(it) },
+                    onBack = { 
+                        showHistory = false
+                        selectedPhoneNumber = null
+                    },
                     onMakeCall = { phoneNumber ->
                         if (hasCallPhonePermission()) {
                             if (callManager.isDefaultPhoneApp()) {
@@ -470,12 +472,7 @@ fun CallManagementApp(activity: ComponentActivity) {
                         } else {
                             permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
                         }
-                    },
-                    onOpenDialer = { showDialer = true },
-                    onOpenContacts = { showContacts = true },
-                    onOpenHistory = { showHistory = true },
-                    onAnswerCall = { callManager.answerCall() },
-                    onRejectCall = { callManager.rejectCall() }
+                    }
                 )
             } else {
                 CallManagementScreen(
@@ -501,7 +498,10 @@ fun CallManagementApp(activity: ComponentActivity) {
                     },
                     onOpenDialer = { showDialer = true },
                     onOpenContacts = { showContacts = true },
-                    onOpenHistory = { showHistory = true },
+                    onOpenHistory = { phoneNumber ->
+                        selectedPhoneNumber = phoneNumber
+                        showHistory = true
+                    },
                     onAnswerCall = { callManager.answerCall() },
                     onRejectCall = { callManager.rejectCall() }
                 )
