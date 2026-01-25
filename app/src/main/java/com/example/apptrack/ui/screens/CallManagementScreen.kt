@@ -390,39 +390,98 @@ suspend fun loadContactPhotoForNumber(
             android.Manifest.permission.READ_CONTACTS
         ) != android.content.pm.PackageManager.PERMISSION_GRANTED
     ) {
+        android.util.Log.w("CallManagementScreen", "READ_CONTACTS permission not granted")
         return@withContext null
     }
     
     try {
-        val uri = ContactsContract.PhoneLookup.CONTENT_FILTER_URI.buildUpon()
-            .appendPath(phoneNumber)
+        // Normalize phone number (remove spaces, dashes, parentheses)
+        val normalizedNumber = phoneNumber.replace(Regex("[^+\\d]"), "")
+        
+        // Try multiple approaches to find the contact
+        var contactId: Long? = null
+        var lookupKey: String? = null
+        
+        // Approach 1: Direct phone lookup
+        val lookupUri = ContactsContract.PhoneLookup.CONTENT_FILTER_URI.buildUpon()
+            .appendPath(normalizedNumber)
             .build()
         
-        val cursor = context.contentResolver.query(
-            uri,
-            arrayOf(ContactsContract.PhoneLookup._ID),
+        val lookupCursor = context.contentResolver.query(
+            lookupUri,
+            arrayOf(ContactsContract.PhoneLookup._ID, ContactsContract.PhoneLookup.LOOKUP_KEY),
             null,
             null,
             null
         )
         
-        cursor?.use {
+        lookupCursor?.use {
             if (it.moveToFirst()) {
-                val contactId = it.getLong(it.getColumnIndex(ContactsContract.PhoneLookup._ID))
-                val photoUri = ContactsContract.Contacts.getLookupUri(contactId, "")
-                val photoStream = ContactsContract.Contacts.openContactPhotoInputStream(
-                    context.contentResolver,
-                    photoUri
-                )
-                
-                photoStream?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
-                }
-            } else {
-                null
+                val idIndex = it.getColumnIndex(ContactsContract.PhoneLookup._ID)
+                val lookupKeyIndex = it.getColumnIndex(ContactsContract.PhoneLookup.LOOKUP_KEY)
+                if (idIndex >= 0) contactId = it.getLong(idIndex)
+                if (lookupKeyIndex >= 0) lookupKey = it.getString(lookupKeyIndex)
             }
         }
+        
+        // If not found, try with original number (in case it has formatting)
+        if (contactId == null && phoneNumber != normalizedNumber) {
+            val originalLookupUri = ContactsContract.PhoneLookup.CONTENT_FILTER_URI.buildUpon()
+                .appendPath(phoneNumber)
+                .build()
+            
+            val originalCursor = context.contentResolver.query(
+                originalLookupUri,
+                arrayOf(ContactsContract.PhoneLookup._ID, ContactsContract.PhoneLookup.LOOKUP_KEY),
+                null,
+                null,
+                null
+            )
+            
+            originalCursor?.use {
+                if (it.moveToFirst()) {
+                    val idIndex = it.getColumnIndex(ContactsContract.PhoneLookup._ID)
+                    val lookupKeyIndex = it.getColumnIndex(ContactsContract.PhoneLookup.LOOKUP_KEY)
+                    if (idIndex >= 0) contactId = it.getLong(idIndex)
+                    if (lookupKeyIndex >= 0) lookupKey = it.getString(lookupKeyIndex)
+                }
+            }
+        }
+        
+        if (contactId == null) {
+            android.util.Log.d("CallManagementScreen", "Contact not found for number: $phoneNumber")
+            return@withContext null
+        }
+        
+        // Load photo using contact ID
+        val photoUri = if (lookupKey != null) {
+            ContactsContract.Contacts.getLookupUri(contactId, lookupKey)
+        } else {
+            android.net.Uri.withAppendedPath(
+                ContactsContract.Contacts.CONTENT_URI,
+                contactId.toString()
+            )
+        }
+        
+        val photoStream = ContactsContract.Contacts.openContactPhotoInputStream(
+            context.contentResolver,
+            photoUri,
+            true // prefer high-res
+        ) ?: ContactsContract.Contacts.openContactPhotoInputStream(
+            context.contentResolver,
+            photoUri,
+            false // fallback to thumbnail
+        )
+        
+        photoStream?.use { stream ->
+            val bitmap = BitmapFactory.decodeStream(stream)
+            if (bitmap != null) {
+                android.util.Log.d("CallManagementScreen", "Loaded photo for contact ID: $contactId")
+            }
+            bitmap
+        }
     } catch (e: Exception) {
+        android.util.Log.e("CallManagementScreen", "Failed to load contact photo for $phoneNumber: ${e.message}", e)
         null
     }
 }

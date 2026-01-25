@@ -317,17 +317,62 @@ suspend fun loadContacts(context: android.content.Context, query: String): List<
 
 suspend fun loadContactPhoto(context: android.content.Context, contactId: Long): Bitmap? {
     return withContext(Dispatchers.IO) {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_CONTACTS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return@withContext null
+        }
+        
         try {
-            val photoUri = ContactsContract.Contacts.getLookupUri(contactId, "")
+            // First, get the lookup key for the contact
+            var lookupKey: String? = null
+            val contactUri = android.net.Uri.withAppendedPath(
+                ContactsContract.Contacts.CONTENT_URI,
+                contactId.toString()
+            )
+            
+            val cursor = context.contentResolver.query(
+                contactUri,
+                arrayOf(ContactsContract.Contacts.LOOKUP_KEY),
+                null,
+                null,
+                null
+            )
+            
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val lookupKeyIndex = it.getColumnIndex(ContactsContract.Contacts.LOOKUP_KEY)
+                    if (lookupKeyIndex >= 0) {
+                        lookupKey = it.getString(lookupKeyIndex)
+                    }
+                }
+            }
+            
+            // Build photo URI with lookup key if available
+            val photoUri = if (lookupKey != null) {
+                ContactsContract.Contacts.getLookupUri(contactId, lookupKey)
+            } else {
+                contactUri
+            }
+            
+            // Try high-res first, then thumbnail
             val photoStream = ContactsContract.Contacts.openContactPhotoInputStream(
                 context.contentResolver,
-                photoUri
+                photoUri,
+                true // prefer high-res
+            ) ?: ContactsContract.Contacts.openContactPhotoInputStream(
+                context.contentResolver,
+                photoUri,
+                false // fallback to thumbnail
             )
             
             photoStream?.use { stream ->
                 BitmapFactory.decodeStream(stream)
             }
         } catch (e: Exception) {
+            android.util.Log.e("ContactsSearchScreen", "Failed to load contact photo for ID $contactId: ${e.message}", e)
             null
         }
     }
