@@ -39,7 +39,8 @@ data class ContactInfo(
 @Composable
 fun ContactsSearchScreen(
     onBack: () -> Unit,
-    onContactSelected: (String) -> Unit,
+    onContactSelected: (String) -> Unit = {},
+    onOpenProfile: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -126,7 +127,8 @@ fun ContactsSearchScreen(
                     items(contacts) { contact ->
                         ContactItem(
                             contact = contact,
-                            onClick = { onContactSelected(contact.phoneNumber) }
+                            onClick = { onContactSelected(contact.phoneNumber) },
+                            onProfileClick = { onOpenProfile(contact.phoneNumber) }
                         )
                     }
                 }
@@ -169,12 +171,13 @@ fun SearchBar(
 @Composable
 fun ContactItem(
     contact: ContactInfo,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onProfileClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onProfileClick),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
@@ -228,11 +231,18 @@ fun ContactItem(
                 )
             }
             
-            Icon(
-                Icons.Default.Phone,
-                contentDescription = "Call",
-                tint = MaterialTheme.colorScheme.primary
-            )
+            // Call Button
+            IconButton(
+                onClick = { onClick() },
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    Icons.Default.Phone,
+                    contentDescription = "Call",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
 }

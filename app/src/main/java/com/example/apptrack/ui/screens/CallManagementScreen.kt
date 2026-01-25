@@ -50,6 +50,7 @@ fun CallManagementScreen(
     onOpenDialer: () -> Unit = {},
     onOpenContacts: () -> Unit = {},
     onOpenHistory: (String) -> Unit = {},
+    onOpenProfile: (String) -> Unit = {},
     onAnswerCall: () -> Unit = {},
     onRejectCall: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -170,6 +171,7 @@ fun CallManagementScreen(
                             onUnblock = { onUnblockNumber(groupedCall.phoneNumber) },
                             onCall = { onMakeCall(groupedCall.phoneNumber) },
                             onOpenHistory = { onOpenHistory(groupedCall.phoneNumber) },
+                            onOpenProfile = { onOpenProfile(groupedCall.phoneNumber) },
                             context = context
                         )
                     }
@@ -225,6 +227,7 @@ fun GroupedCallHistoryItem(
     onUnblock: () -> Unit,
     onCall: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenProfile: () -> Unit,
     context: android.content.Context
 ) {
     var contactPhoto by remember { mutableStateOf<Bitmap?>(null) }
@@ -234,9 +237,7 @@ fun GroupedCallHistoryItem(
     }
     
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCall() },
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -248,12 +249,13 @@ fun GroupedCallHistoryItem(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Contact Photo
+            // Contact Photo (clickable to open profile)
             Box(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .clickable { onOpenProfile() },
                 contentAlignment = Alignment.Center
             ) {
                 if (contactPhoto != null) {

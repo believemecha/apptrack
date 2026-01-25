@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.telecom.TelecomManager
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -28,6 +29,7 @@ import kotlinx.coroutines.launch
 import com.example.apptrack.call.CallManager
 import com.example.apptrack.ui.screens.CallHistoryScreen
 import com.example.apptrack.ui.screens.CallManagementScreen
+import com.example.apptrack.ui.screens.ContactProfileScreen
 import com.example.apptrack.ui.screens.ContactsSearchScreen
 import com.example.apptrack.ui.screens.DialerScreen
 import com.example.apptrack.ui.theme.AppTrackTheme
@@ -327,6 +329,11 @@ fun CallManagementApp(activity: ComponentActivity) {
         }
     } else {
         if (showDialer) {
+            // Handle system back button
+            BackHandler(enabled = true) {
+                showDialer = false
+            }
+            
             DialerScreen(
                 onCall = { phoneNumber ->
                     // Check permission before making call
@@ -436,9 +443,35 @@ fun CallManagementApp(activity: ComponentActivity) {
         } else {
             var showContacts by remember { mutableStateOf(false) }
             var showHistory by remember { mutableStateOf(false) }
+            var showProfile by remember { mutableStateOf(false) }
             var selectedPhoneNumber by remember { mutableStateOf<String?>(null) }
             
-            if (showContacts) {
+            if (showProfile && selectedPhoneNumber != null) {
+                ContactProfileScreen(
+                    phoneNumber = selectedPhoneNumber!!,
+                    callHistory = callHistory,
+                    onBack = {
+                        showProfile = false
+                        selectedPhoneNumber = null
+                    },
+                    onMakeCall = { phoneNumber ->
+                        if (hasCallPhonePermission()) {
+                            if (callManager.isDefaultPhoneApp()) {
+                                callManager.makeCall(phoneNumber)
+                            } else {
+                                showSetDefaultDialog = true
+                            }
+                        } else {
+                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
+                        }
+                    }
+                )
+            } else if (showContacts) {
+                // Handle system back button
+                BackHandler(enabled = true) {
+                    showContacts = false
+                }
+                
                 ContactsSearchScreen(
                     onBack = { showContacts = false },
                     onContactSelected = { phoneNumber ->
@@ -455,6 +488,12 @@ fun CallManagementApp(activity: ComponentActivity) {
                     }
                 )
             } else if (showHistory && selectedPhoneNumber != null) {
+                // Handle system back button
+                BackHandler(enabled = true) {
+                    showHistory = false
+                    selectedPhoneNumber = null
+                }
+                
                 CallHistoryScreen(
                     phoneNumber = selectedPhoneNumber!!,
                     callHistory = callHistory,
@@ -496,8 +535,12 @@ fun CallManagementApp(activity: ComponentActivity) {
                             permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
                         }
                     },
-                    onOpenDialer = { showDialer = true },
+                    onOpenDialer = { showDialer = true                     },
                     onOpenContacts = { showContacts = true },
+                    onOpenProfile = { phoneNumber ->
+                        selectedPhoneNumber = phoneNumber
+                        showProfile = true
+                    },
                     onOpenHistory = { phoneNumber ->
                         selectedPhoneNumber = phoneNumber
                         showHistory = true
