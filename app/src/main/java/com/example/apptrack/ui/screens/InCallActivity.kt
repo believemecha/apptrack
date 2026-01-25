@@ -1,25 +1,42 @@
 package com.example.apptrack.ui.screens
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.apptrack.call.CallControlManager
 import com.example.apptrack.call.CallType
 import com.example.apptrack.ui.theme.AppTrackTheme
 import android.telecom.Call
 import android.util.Log
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 class InCallActivity : ComponentActivity() {
     
@@ -41,10 +58,9 @@ class InCallActivity : ComponentActivity() {
         CallControlManager.initialize(this)
         
         // Monitor call state and close when disconnected
-        // Use a handler to check for calls with a delay (in case InCallService isn't bound yet)
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         var checkCount = 0
-        val maxChecks = 10 // Check for 5 seconds (10 * 500ms)
+        val maxChecks = 10
         
         val checkForCall = object : Runnable {
             override fun run() {
@@ -58,7 +74,6 @@ class InCallActivity : ComponentActivity() {
                 
                 if (activeCall != null) {
                     Log.d(TAG, "Active call found, registering callback")
-                    // Register callback to detect when call is disconnected
                     activeCall.registerCallback(object : Call.Callback() {
                         override fun onStateChanged(call: Call, state: Int) {
                             Log.d(TAG, "Call state changed in activity: $state")
@@ -73,18 +88,15 @@ class InCallActivity : ComponentActivity() {
                 } else {
                     checkCount++
                     if (checkCount < maxChecks) {
-                        // Keep checking - InCallService might not be bound yet
                         Log.d(TAG, "No active call found yet, checking again... ($checkCount/$maxChecks)")
                         handler.postDelayed(this, 500)
                     } else {
-                        // After max checks, if still no call, keep activity open anyway
-                        // (call might be using system dialer's InCallService)
                         Log.d(TAG, "No active call found after $maxChecks checks, keeping activity open")
                     }
                 }
             }
         }
-        handler.postDelayed(checkForCall, 100) // Start checking after 100ms
+        handler.postDelayed(checkForCall, 100)
         
         setContent {
             AppTrackTheme {
@@ -128,21 +140,26 @@ fun InCallScreen(
     onReject: () -> Unit,
     onEndCall: () -> Unit
 ) {
+    val context = LocalContext.current
     var isMuted by remember { mutableStateOf(CallControlManager.isMuted()) }
     var isSpeakerOn by remember { mutableStateOf(CallControlManager.isSpeakerOn()) }
     var callDuration by remember { mutableStateOf(0L) }
     var isCallActive by remember { mutableStateOf(false) }
+    var contactPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    
+    // Load contact photo
+    LaunchedEffect(phoneNumber) {
+        contactPhoto = getContactPhoto(context, phoneNumber)
+    }
     
     // Sync state and update call duration periodically
-    // Also check if call is actually active (answered)
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(500) // Update every 500ms for responsive UI
+            delay(500)
             isMuted = CallControlManager.isMuted()
             isSpeakerOn = CallControlManager.isSpeakerOn()
             callDuration = CallControlManager.getCallDuration()
             
-            // Check if call is actually active (answered)
             val activeCall = CallControlManager.getActiveCall()
             isCallActive = activeCall?.state == Call.STATE_ACTIVE || callDuration > 0
         }
@@ -151,158 +168,275 @@ fun InCallScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(48.dp))
         
-        // Caller Info
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        // Contact Photo/Avatar - Large circular
+        Box(
+            modifier = Modifier
+                .size(200.dp)
+                .clip(CircleShape)
+                .background(
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                ),
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = contactName ?: phoneNumber,
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
-            )
-            if (contactName != null) {
-                Text(
-                    text = phoneNumber,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            if (contactPhoto != null) {
+                Image(
+                    bitmap = contactPhoto!!.asImageBitmap(),
+                    contentDescription = "Contact photo",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-            }
-            // Show status text
-            if (!isCallActive && callType == CallType.INCOMING) {
+            } else {
+                // Show initials or first letter
+                val displayText = if (contactName != null) {
+                    contactName.take(2).uppercase()
+                } else if (phoneNumber.isNotEmpty()) {
+                    phoneNumber.takeLast(2)
+                } else {
+                    "?"
+                }
                 Text(
-                    text = "Incoming call",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            } else if (!isCallActive && callType == CallType.OUTGOING) {
-                Text(
-                    text = "Calling...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
-            
-            // Show call duration for active calls
-            if (isCallActive && callDuration > 0) {
-                Text(
-                    text = formatCallDurationTimer(callDuration),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Medium,
+                    text = displayText,
+                    style = MaterialTheme.typography.displayLarge,
+                    fontSize = 72.sp,
+                    fontWeight = FontWeight.Light,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
         }
         
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        // Contact Name
+        Text(
+            text = contactName ?: phoneNumber,
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Normal,
+            fontSize = 32.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // Phone Number (if contact name exists)
+        if (contactName != null && phoneNumber.isNotEmpty()) {
+            Text(
+                text = formatPhoneNumber(phoneNumber),
+                style = MaterialTheme.typography.bodyLarge,
+                fontSize = 18.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Call Status/Duration
+        Text(
+            text = when {
+                !isCallActive && callType == CallType.INCOMING -> "Incoming call"
+                !isCallActive && callType == CallType.OUTGOING -> "Calling..."
+                isCallActive && callDuration > 0 -> formatCallDurationTimer(callDuration)
+                else -> ""
+            },
+            style = MaterialTheme.typography.titleMedium,
+            fontSize = 16.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            textAlign = TextAlign.Center
+        )
+        
         Spacer(modifier = Modifier.weight(1f))
         
         // Call Controls
-        // Show incoming call UI only if call is not yet active
         if (callType == CallType.INCOMING && !isCallActive) {
             // Incoming call - Answer/Reject buttons
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 48.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 // Reject Button
                 FloatingActionButton(
                     onClick = onReject,
-                    containerColor = MaterialTheme.colorScheme.error
+                    containerColor = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(64.dp)
                 ) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "Reject",
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(32.dp),
+                        tint = Color.White
                     )
                 }
                 
                 // Answer Button
                 FloatingActionButton(
                     onClick = onAnswer,
-                    containerColor = MaterialTheme.colorScheme.primary
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(64.dp)
                 ) {
                     Icon(
                         Icons.Default.Phone,
                         contentDescription = "Answer",
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(32.dp),
+                        tint = Color.White
                     )
                 }
             }
         } else {
-            // Active call - Full controls
+            // Active call - Full controls (Google Phone style)
             Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Secondary controls (Mute, Speaker, etc.)
+                // Control buttons row (Mute, Keypad, Speaker, Add Call, Hold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     // Mute Button
-                    IconButton(
+                    ControlButtonWithText(
+                        iconText = if (isMuted) "🔇" else "🎤",
+                        label = "Mute",
+                        isActive = isMuted,
                         onClick = {
                             isMuted = CallControlManager.toggleMute()
-                        },
-                        modifier = Modifier.size(64.dp)
-                    ) {
-                        Text(
-                            text = if (isMuted) "🔇" else "🎤",
-                            style = MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
+                        }
+                    )
+                    
+                    // Keypad Button
+                    ControlButtonWithText(
+                        iconText = "⌨️",
+                        label = "Keypad",
+                        isActive = false,
+                        onClick = { /* TODO: Show keypad */ }
+                    )
                     
                     // Speaker Button
-                    IconButton(
+                    ControlButtonWithText(
+                        iconText = if (isSpeakerOn) "🔊" else "📢",
+                        label = "Speaker",
+                        isActive = isSpeakerOn,
                         onClick = {
                             isSpeakerOn = CallControlManager.toggleSpeaker()
-                        },
-                        modifier = Modifier.size(64.dp)
-                    ) {
-                        Text(
-                            text = if (isSpeakerOn) "🔊" else "📢",
-                            style = MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier.size(32.dp),
-                            color = if (isSpeakerOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    
-                    // Keypad Button (placeholder)
-                    IconButton(
-                        onClick = { /* TODO: Show keypad */ },
-                        modifier = Modifier.size(64.dp)
-                    ) {
-                        Text(
-                            text = "⌨️",
-                            style = MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
+                        }
+                    )
                 }
                 
-                // End Call Button
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // End Call Button - Large button with pure red horizontally flipped phone icon
                 FloatingActionButton(
                     onClick = onEndCall,
-                    containerColor = MaterialTheme.colorScheme.error,
+                    containerColor = MaterialTheme.colorScheme.background, // Same as screen background
                     modifier = Modifier.size(72.dp)
                 ) {
                     Icon(
-                        Icons.Default.Close,
+                        Icons.Default.Phone,
                         contentDescription = "End Call",
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier
+                            .size(36.dp)
+                            .graphicsLayer {
+                                scaleX = -1f // Flip horizontally only, no tilt
+                            },
+                        tint = Color(0xFFFF0000) // Pure red icon
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ControlButtonWithText(
+    iconText: String,
+    label: String,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .size(64.dp)
+                .background(
+                    color = if (isActive) 
+                        MaterialTheme.colorScheme.primaryContainer 
+                    else 
+                        MaterialTheme.colorScheme.surfaceVariant,
+                    shape = CircleShape
+                )
+        ) {
+            Text(
+                text = iconText,
+                style = MaterialTheme.typography.headlineMedium,
+                fontSize = 28.sp
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+        )
+    }
+}
+
+fun getContactPhoto(context: android.content.Context, phoneNumber: String): Bitmap? {
+    return try {
+        val uri = ContactsContract.PhoneLookup.CONTENT_FILTER_URI.buildUpon()
+            .appendPath(phoneNumber)
+            .build()
         
-        Spacer(modifier = Modifier.height(32.dp))
+        val cursor = context.contentResolver.query(
+            uri,
+            arrayOf(ContactsContract.PhoneLookup._ID),
+            null,
+            null,
+            null
+        )
+        
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val contactId = it.getLong(it.getColumnIndex(ContactsContract.PhoneLookup._ID))
+                val photoUri = ContactsContract.Contacts.getLookupUri(contactId, "")
+                
+                val photoStream = ContactsContract.Contacts.openContactPhotoInputStream(
+                    context.contentResolver,
+                    photoUri
+                )
+                
+                photoStream?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            } else {
+                null
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("InCallActivity", "Failed to load contact photo: ${e.message}")
+        null
+    }
+}
+
+fun formatPhoneNumber(phoneNumber: String): String {
+    // Simple formatting - can be enhanced
+    return if (phoneNumber.length > 10) {
+        phoneNumber
+    } else {
+        phoneNumber
     }
 }
 
