@@ -422,6 +422,8 @@ class CallManager(private val context: Context) {
                     "${CallLog.Calls.DATE} DESC"
                 )
                 
+                val phoneNumbers = mutableSetOf<String>()
+                
                 cursor?.use {
                     val numberIndex = it.getColumnIndex(CallLog.Calls.NUMBER)
                     val typeIndex = it.getColumnIndex(CallLog.Calls.TYPE)
@@ -431,6 +433,7 @@ class CallManager(private val context: Context) {
                     var count = 0
                     val maxCalls = 500 // Limit to 500 most recent calls
                     
+                    // First pass: collect all calls and phone numbers
                     while (it.moveToNext() && count < maxCalls) {
                         val number = it.getString(numberIndex) ?: "Unknown"
                         val type = it.getInt(typeIndex)
@@ -447,19 +450,33 @@ class CallManager(private val context: Context) {
                             else -> CallType.INCOMING
                         }
                         
-                        val contactName = getContactName(number)
-                        
                         calls.add(
                             CallInfo(
                                 phoneNumber = number,
-                                contactName = contactName,
+                                contactName = null, // Will be filled in batch
                                 callType = callType,
                                 timestamp = date,
                                 duration = duration,
                                 isBlocked = blockedNumbersSet.contains(number)
                             )
                         )
+                        
+                        if (number != "Unknown") {
+                            phoneNumbers.add(number)
+                        }
                         count++
+                    }
+                }
+                
+                // Batch load all contact names at once (much faster)
+                val contactNamesMap = batchLoadContactNames(phoneNumbers.toList())
+                
+                // Update calls with contact names
+                calls.forEach { call ->
+                    val contactName = contactNamesMap[call.phoneNumber]
+                    if (contactName != null) {
+                        val index = calls.indexOf(call)
+                        calls[index] = call.copy(contactName = contactName)
                     }
                 }
                 
@@ -469,6 +486,55 @@ class CallManager(private val context: Context) {
                 Log.e("CallManager", "Failed to load call history: ${e.message}", e)
             }
         }
+    }
+    
+    private fun batchLoadContactNames(phoneNumbers: List<String>): Map<String, String> {
+        if (phoneNumbers.isEmpty() || ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_CONTACTS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return emptyMap()
+        }
+        
+        val contactNamesMap = mutableMapOf<String, String>()
+        
+        try {
+            // Process in chunks to avoid too many queries
+            phoneNumbers.forEach { number ->
+                try {
+                    val lookupUri = Uri.withAppendedPath(
+                        ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                        Uri.encode(number)
+                    )
+                    val cursor = context.contentResolver.query(
+                        lookupUri,
+                        arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                        null,
+                        null,
+                        null
+                    )
+                    
+                    cursor?.use {
+                        if (it.moveToFirst()) {
+                            val nameIndex = it.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME)
+                            if (nameIndex >= 0) {
+                                val name = it.getString(nameIndex)
+                                if (name != null) {
+                                    contactNamesMap[number] = name
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Skip this number if lookup fails
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("CallManager", "Failed to batch load contact names: ${e.message}", e)
+        }
+        
+        return contactNamesMap
     }
     
     private fun getContactName(phoneNumber: String): String? {

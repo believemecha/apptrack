@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import com.example.apptrack.call.CallManager
 import com.example.apptrack.ui.screens.CallManagementScreen
+import com.example.apptrack.ui.screens.ContactsSearchScreen
 import com.example.apptrack.ui.screens.DialerScreen
 import com.example.apptrack.ui.theme.AppTrackTheme
 
@@ -432,31 +433,79 @@ fun CallManagementApp(activity: ComponentActivity) {
                 )
             }
         } else {
-            CallManagementScreen(
-                currentCall = currentCall,
-                callHistory = callHistory,
-                onBlockNumber = { callManager.blockNumber(it) },
-                onUnblockNumber = { callManager.unblockNumber(it) },
-                isBlocked = { callManager.isBlocked(it) },
-                onMakeCall = { phoneNumber ->
-                    // Check permission before making call
-                    if (hasCallPhonePermission()) {
-                        // Check if app is default phone app
-                        if (callManager.isDefaultPhoneApp()) {
-                            callManager.makeCall(phoneNumber)
+            var showContacts by remember { mutableStateOf(false) }
+            var showHistory by remember { mutableStateOf(false) }
+            
+            if (showContacts) {
+                ContactsSearchScreen(
+                    onBack = { showContacts = false },
+                    onContactSelected = { phoneNumber ->
+                        showContacts = false
+                        if (hasCallPhonePermission()) {
+                            if (callManager.isDefaultPhoneApp()) {
+                                callManager.makeCall(phoneNumber)
+                            } else {
+                                showSetDefaultDialog = true
+                            }
                         } else {
-                            // Show dialog to set as default
-                            showSetDefaultDialog = true
+                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
                         }
-                    } else {
-                        // Request permission if not granted
-                        permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
                     }
-                },
-                onOpenDialer = { showDialer = true },
-                onAnswerCall = { callManager.answerCall() },
-                onRejectCall = { callManager.rejectCall() }
-            )
+                )
+            } else if (showHistory) {
+                // TODO: Create HistoryScreen
+                CallManagementScreen(
+                    currentCall = null,
+                    callHistory = callHistory,
+                    onBlockNumber = { callManager.blockNumber(it) },
+                    onUnblockNumber = { callManager.unblockNumber(it) },
+                    isBlocked = { callManager.isBlocked(it) },
+                    onMakeCall = { phoneNumber ->
+                        if (hasCallPhonePermission()) {
+                            if (callManager.isDefaultPhoneApp()) {
+                                callManager.makeCall(phoneNumber)
+                            } else {
+                                showSetDefaultDialog = true
+                            }
+                        } else {
+                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
+                        }
+                    },
+                    onOpenDialer = { showDialer = true },
+                    onOpenContacts = { showContacts = true },
+                    onOpenHistory = { showHistory = true },
+                    onAnswerCall = { callManager.answerCall() },
+                    onRejectCall = { callManager.rejectCall() }
+                )
+            } else {
+                CallManagementScreen(
+                    currentCall = currentCall,
+                    callHistory = callHistory,
+                    onBlockNumber = { callManager.blockNumber(it) },
+                    onUnblockNumber = { callManager.unblockNumber(it) },
+                    isBlocked = { callManager.isBlocked(it) },
+                    onMakeCall = { phoneNumber ->
+                        // Check permission before making call
+                        if (hasCallPhonePermission()) {
+                            // Check if app is default phone app
+                            if (callManager.isDefaultPhoneApp()) {
+                                callManager.makeCall(phoneNumber)
+                            } else {
+                                // Show dialog to set as default
+                                showSetDefaultDialog = true
+                            }
+                        } else {
+                            // Request permission if not granted
+                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
+                        }
+                    },
+                    onOpenDialer = { showDialer = true },
+                    onOpenContacts = { showContacts = true },
+                    onOpenHistory = { showHistory = true },
+                    onAnswerCall = { callManager.answerCall() },
+                    onRejectCall = { callManager.rejectCall() }
+                )
+            }
             
             // Dialog to set app as default phone app (only show if overlay permission is granted)
             if (showSetDefaultDialog && overlayPermissionGranted) {
