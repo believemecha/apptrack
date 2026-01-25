@@ -20,7 +20,10 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +57,8 @@ class CallManager(private val context: Context) {
     private val telecomManager: TelecomManager by lazy {
         context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
     }
+    
+    private val callManagerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     private val phoneStateListener = object : PhoneStateListener() {
         override fun onCallStateChanged(state: Int, phoneNumber: String?) {
@@ -485,6 +490,17 @@ class CallManager(private val context: Context) {
             } catch (e: Exception) {
                 Log.e("CallManager", "Failed to load call history: ${e.message}", e)
             }
+        }
+    }
+    
+    /**
+     * Refresh call history from the system call log.
+     * This is a non-suspend function that can be called from anywhere.
+     * It will update the callHistory StateFlow, which will automatically trigger UI updates.
+     */
+    fun refreshCallHistory() {
+        callManagerScope.launch {
+            loadCallHistory()
         }
     }
     

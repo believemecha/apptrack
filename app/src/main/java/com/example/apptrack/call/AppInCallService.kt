@@ -133,6 +133,14 @@ class AppInCallService : InCallService() {
                     // Call ended, stop timer and close the activity
                     CallControlManager.setAudioModeNormal()
                     
+                    // Refresh call history to show the new call in the list
+                    // Use a small delay to ensure the call log is written to the system
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        val callManager = com.example.apptrack.call.CallManager.getInstance(this@AppInCallService)
+                        callManager.refreshCallHistory()
+                        Log.d(TAG, "Refreshed call history after call ended")
+                    }, 500) // 500ms delay to ensure call log is written
+                    
                     // Close the InCallActivity by sending a broadcast or intent
                     val intent = Intent("com.example.apptrack.CALL_DISCONNECTED").apply {
                         setPackage(packageName)
