@@ -12,6 +12,15 @@
     <!-- Audio permissions for call audio -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Storage permissions for saving recordings -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
+        android:maxSdkVersion="32" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
     <!-- Required for showing call UI over lock screen on some OEMs (Xiaomi/MIUI) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     
@@ -116,6 +125,10 @@
                 android:name="android.telecom.IN_CALL_SERVICE_RINGING" 
                 android:value="true" />
         </service>
-
+        
+        <service
+            android:name=".call.CallRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 </manifest>

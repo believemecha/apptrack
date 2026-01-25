@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.apptrack.call.CallControlManager
 import com.example.apptrack.call.CallType
+import com.example.apptrack.call.ManualCallRecorder
 import com.example.apptrack.ui.theme.AppTrackTheme
 import android.telecom.Call
 import android.util.Log
@@ -193,10 +194,12 @@ fun InCallScreen(
     var isCallActive by remember { mutableStateOf(false) }
     var contactPhoto by remember { mutableStateOf<Bitmap?>(null) }
     var isOnHold by remember { mutableStateOf(false) }
-    var showKeypad by remember { mutableStateOf(false) }
-    var dtmfSequence by remember { mutableStateOf("") } // Display DTMF sequence
-    
-    // Load contact photo
+        var showKeypad by remember { mutableStateOf(false) }
+        var dtmfSequence by remember { mutableStateOf("") } // Display DTMF sequence
+        val callRecorder = remember { ManualCallRecorder.getInstance(context) }
+        var isRecording by remember { mutableStateOf(false) }
+        
+        // Load contact photo
     LaunchedEffect(phoneNumber) {
         contactPhoto = getContactPhoto(context, phoneNumber)
     }
@@ -207,12 +210,24 @@ fun InCallScreen(
             delay(500)
             isMuted = CallControlManager.isMuted()
             isSpeakerOn = CallControlManager.isSpeakerOn()
-            callDuration = CallControlManager.getCallDuration()
-            dtmfSequence = CallControlManager.getDtmfDigits() // Update DTMF sequence display
-            
-            val activeCall = CallControlManager.getActiveCall()
+                callDuration = CallControlManager.getCallDuration()
+                dtmfSequence = CallControlManager.getDtmfDigits() // Update DTMF sequence display
+                isRecording = callRecorder.isRecording() // Update recording state
+                
+                val activeCall = CallControlManager.getActiveCall()
             isCallActive = activeCall?.state == Call.STATE_ACTIVE || callDuration > 0
             isOnHold = activeCall?.state == Call.STATE_HOLDING
+        }
+    }
+    
+    // Cleanup recording when call ends
+    LaunchedEffect(isCallActive) {
+        if (!isCallActive && isRecording) {
+            val recordingPath = callRecorder.stopRecording()
+            if (recordingPath != null) {
+                Log.d("InCallActivity", "Call ended, recording saved: $recordingPath")
+            }
+            isRecording = false
         }
     }
     
@@ -526,6 +541,54 @@ fun InCallScreen(
                                     }
                                 } else {
                                     Log.w("InCallActivity", "No active call to hold/unhold")
+                                }
+                            }
+                        )
+                    }
+                    
+                    // Third row: Recording
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        ControlButtonWithIcon(
+                            iconText = if (isRecording) "🔴" else "⏺️",
+                            label = if (isRecording) "Recording" else "Record",
+                            isActive = isRecording,
+                            onClick = {
+                                if (isRecording) {
+                                    val recordingPath = callRecorder.stopRecording()
+                                    if (recordingPath != null) {
+                                        Log.d("InCallActivity", "Recording stopped: $recordingPath")
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Call recording saved",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Recording failed or was empty",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                    isRecording = false
+                                } else {
+                                    if (callRecorder.startRecording(phoneNumber)) {
+                                        isRecording = true
+                                        Log.d("InCallActivity", "Recording started")
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Recording started",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Failed to start recording",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
                                 }
                             }
                         )
