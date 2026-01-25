@@ -2,6 +2,8 @@ package com.example.apptrack.call
 
 import android.content.Context
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.telecom.Call
 import android.telecom.InCallService
 import android.telecom.VideoProfile
@@ -71,12 +73,48 @@ object CallControlManager {
     
     fun toggleSpeaker(): Boolean {
         audioManager?.let { am ->
-            val isSpeakerOn = am.isSpeakerphoneOn
-            am.isSpeakerphoneOn = !isSpeakerOn
-            val newState = am.isSpeakerphoneOn
-            Log.d(TAG, "Speaker toggled: $newState")
-            return newState
+            try {
+                // Ensure we're in call mode for speaker to work
+                val currentMode = am.mode
+                if (currentMode != AudioManager.MODE_IN_CALL) {
+                    Log.d(TAG, "Setting audio mode to MODE_IN_CALL (was: $currentMode)")
+                    am.mode = AudioManager.MODE_IN_CALL
+                }
+                
+                val isSpeakerOn = am.isSpeakerphoneOn
+                val newSpeakerState = !isSpeakerOn
+                
+                Log.d(TAG, "Toggling speaker from $isSpeakerOn to $newSpeakerState")
+                
+                // Set speakerphone state
+                am.isSpeakerphoneOn = newSpeakerState
+                
+                // Force audio routing update by toggling mode
+                // This ensures the audio routing change takes effect
+                Handler(Looper.getMainLooper()).postDelayed({
+                    am.mode = AudioManager.MODE_IN_CALL
+                }, 50)
+                
+                // Verify the state was actually set
+                val actualState = am.isSpeakerphoneOn
+                Log.d(TAG, "Speaker state after toggle: $actualState (expected: $newSpeakerState)")
+                
+                if (actualState != newSpeakerState) {
+                    Log.w(TAG, "Warning: Speaker state mismatch! Retrying...")
+                    // Retry once
+                    am.isSpeakerphoneOn = newSpeakerState
+                }
+                
+                return am.isSpeakerphoneOn
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException when toggling speaker: ${e.message}", e)
+                return false
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception when toggling speaker: ${e.message}", e)
+                return false
+            }
         }
+        Log.w(TAG, "AudioManager is null, cannot toggle speaker")
         return false
     }
     
@@ -110,11 +148,16 @@ object CallControlManager {
                 // NOTE: Don't start timer here - wait for call to be actually received/answered
                 
                 // Set audio mode for call - this is critical for call audio
+                // Use setMode to ensure proper audio routing
                 am.mode = AudioManager.MODE_IN_CALL
                 Log.d(TAG, "Audio mode set to MODE_IN_CALL")
                 
                 // Ensure audio routing is set up (earpiece by default)
-                am.isSpeakerphoneOn = false
+                // Only reset if not already set by user
+                val currentSpeakerState = am.isSpeakerphoneOn
+                if (!currentSpeakerState) {
+                    am.isSpeakerphoneOn = false
+                }
                 am.isBluetoothScoOn = false
                 
                 // Set audio stream volume if muted
