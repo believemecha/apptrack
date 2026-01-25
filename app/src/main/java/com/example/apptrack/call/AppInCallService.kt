@@ -9,6 +9,9 @@ import android.telecom.DisconnectCause
 import android.telecom.InCallService
 import android.util.Log
 import com.example.apptrack.ui.screens.InCallActivity
+import com.example.apptrack.call.PostCallSummary.CallSummaryData
+import com.example.apptrack.call.PostCallSummary.CallSummaryLauncher
+import com.example.apptrack.call.CallType
 
 class AppInCallService : InCallService() {
     
@@ -130,6 +133,20 @@ class AppInCallService : InCallService() {
                     val disconnectCause = call.details.disconnectCause
                     Log.d(TAG, "Call disconnected - cause: ${disconnectCause?.code} (${getDisconnectCauseName(disconnectCause?.code ?: -1)})")
                     
+                    // Get call information before cleanup
+                    val phoneNumber = call.details.handle?.schemeSpecificPart ?: ""
+                    val callDirection = call.details.callDirection
+                    val callDuration = CallControlManager.getCallDuration()
+                    val callEndTimestamp = System.currentTimeMillis()
+                    
+                    // Determine call type based on direction and disconnect cause
+                    val callType = when {
+                        disconnectCause?.code == DisconnectCause.MISSED -> CallType.MISSED
+                        disconnectCause?.code == DisconnectCause.REJECTED -> CallType.REJECTED
+                        callDirection == Call.Details.DIRECTION_INCOMING -> CallType.INCOMING
+                        else -> CallType.OUTGOING
+                    }
+                    
                     // Call ended, stop timer and close the activity
                     CallControlManager.setAudioModeNormal()
                     
@@ -157,6 +174,29 @@ class AppInCallService : InCallService() {
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to close InCallActivity: ${e.message}", e)
                     }
+                    
+                    // Show post-call summary popup
+                    // Delay to ensure InCallActivity is closed first
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        try {
+                            // Get contact name and photo
+                            val contactName = getContactName(phoneNumber)
+                            val contactPhotoUri = getContactPhotoUri(phoneNumber)
+                            
+                            val summaryData = CallSummaryData(
+                                phoneNumber = phoneNumber,
+                                callType = callType,
+                                callDurationMillis = callDuration,
+                                callEndTimestamp = callEndTimestamp,
+                                contactName = contactName,
+                                contactPhotoUri = contactPhotoUri
+                            )
+                            CallSummaryLauncher.show(this@AppInCallService, summaryData)
+                            Log.d(TAG, "Post-call summary triggered for $phoneNumber (name: $contactName)")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to show post-call summary: ${e.message}", e)
+                        }
+                    }, 800) // Delay to ensure UI is ready
                 }
             }
         }
@@ -213,6 +253,62 @@ class AppInCallService : InCallService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get contact name: ${e.message}", e)
+            null
+        }
+    }
+    
+    private fun getContactPhotoUri(phoneNumber: String): Uri? {
+        return try {
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(phoneNumber)
+            )
+            val cursor = contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.PhoneLookup._ID, ContactsContract.PhoneLookup.LOOKUP_KEY),
+                null,
+                null,
+                null
+            )
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val idIndex = it.getColumnIndex(ContactsContract.PhoneLookup._ID)
+                    val lookupKeyIndex = it.getColumnIndex(ContactsContract.PhoneLookup.LOOKUP_KEY)
+                    if (idIndex >= 0) {
+                        val contactId = it.getLong(idIndex)
+                        val lookupKey = if (lookupKeyIndex >= 0) it.getString(lookupKeyIndex) else null
+                        
+                        // Get photo URI
+                        val contactUri = if (lookupKey != null) {
+                            ContactsContract.Contacts.getLookupUri(contactId, lookupKey)
+                        } else {
+                            Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, contactId.toString())
+                        }
+                        
+                        val photoCursor = contentResolver.query(
+                            contactUri,
+                            arrayOf(ContactsContract.Contacts.PHOTO_URI),
+                            null,
+                            null,
+                            null
+                        )
+                        photoCursor?.use { photoCursor ->
+                            if (photoCursor.moveToFirst()) {
+                                val photoIndex = photoCursor.getColumnIndex(ContactsContract.Contacts.PHOTO_URI)
+                                if (photoIndex >= 0) {
+                                    val photoUriString = photoCursor.getString(photoIndex)
+                                    if (photoUriString != null) {
+                                        return Uri.parse(photoUriString)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get contact photo URI: ${e.message}", e)
             null
         }
     }
