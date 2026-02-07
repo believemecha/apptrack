@@ -247,7 +247,13 @@ fun ContactItem(
     }
 }
 
-suspend fun loadContacts(context: android.content.Context, query: String): List<ContactInfo> {
+suspend fun loadContacts(
+    context: android.content.Context,
+    query: String,
+    loadPhotos: Boolean = true,
+    limit: Int = Int.MAX_VALUE,
+    offset: Int = 0
+): List<ContactInfo> {
     return withContext(Dispatchers.IO) {
         if (ContextCompat.checkSelfPermission(
                 context,
@@ -293,20 +299,24 @@ suspend fun loadContacts(context: android.content.Context, query: String): List<
                 val numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
                 
                 val seenContacts = mutableSetOf<String>()
+                var skipped = 0
+                var taken = 0
                 
-                while (cursor.moveToNext()) {
+                while (cursor.moveToNext() && taken < limit) {
                     val id = cursor.getLong(idIndex)
                     val name = cursor.getString(nameIndex) ?: "Unknown"
                     val number = cursor.getString(numberIndex) ?: ""
                     
-                    // Skip duplicates
                     val key = "$id-$number"
                     if (seenContacts.contains(key)) continue
                     seenContacts.add(key)
                     
-                    // Load photo
-                    val photo = loadContactPhoto(context, id)
+                    if (skipped < offset) {
+                        skipped++
+                        continue
+                    }
                     
+                    val photo = if (loadPhotos) loadContactPhoto(context, id) else null
                     contacts.add(
                         ContactInfo(
                             id = id,
@@ -315,6 +325,7 @@ suspend fun loadContacts(context: android.content.Context, query: String): List<
                             photo = photo
                         )
                     )
+                    taken++
                 }
             }
         } catch (e: Exception) {
@@ -323,6 +334,19 @@ suspend fun loadContacts(context: android.content.Context, query: String): List<
         
         contacts
     }
+}
+
+/** Loads one page of contacts. Returns the list and true if there are more. */
+suspend fun loadContactsPage(
+    context: android.content.Context,
+    query: String,
+    loadPhotos: Boolean,
+    pageSize: Int,
+    offset: Int
+): Pair<List<ContactInfo>, Boolean> {
+    val page = loadContacts(context, query, loadPhotos, limit = pageSize + 1, offset = offset)
+    val hasMore = page.size > pageSize
+    return (if (hasMore) page.take(pageSize) else page) to hasMore
 }
 
 suspend fun loadContactPhoto(context: android.content.Context, contactId: Long): Bitmap? {

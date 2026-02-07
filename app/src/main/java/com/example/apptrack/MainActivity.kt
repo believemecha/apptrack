@@ -27,11 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import com.example.apptrack.call.CallManager
-import com.example.apptrack.ui.screens.CallHistoryScreen
-import com.example.apptrack.ui.screens.CallManagementScreen
-import com.example.apptrack.ui.screens.ContactProfileScreen
-import com.example.apptrack.ui.screens.ContactsSearchScreen
-import com.example.apptrack.ui.screens.DialerScreen
+import com.example.apptrack.ui.navigation.HomeNavHost
 import com.example.apptrack.ui.theme.AppTrackTheme
 
 class MainActivity : ComponentActivity() {
@@ -328,229 +324,32 @@ fun CallManagementApp(activity: ComponentActivity) {
             }
         }
     } else {
-        if (showDialer) {
-            // Handle system back button
-            BackHandler(enabled = true) {
-                showDialer = false
-            }
-            
-            DialerScreen(
-                onCall = { phoneNumber ->
-                    // Check permission before making call
-                    if (hasCallPhonePermission()) {
-                        // Check if app is default phone app
-                        if (callManager.isDefaultPhoneApp()) {
-                            callManager.makeCall(phoneNumber)
-                            showDialer = false
-                        } else {
-                            // Show dialog to set as default
-                            showSetDefaultDialog = true
-                        }
+        var searchQuery by remember { mutableStateOf("") }
+        
+        HomeNavHost(
+            callHistory = callHistory,
+            currentCall = currentCall,
+            searchQuery = searchQuery,
+            onSearchQueryChange = { searchQuery = it },
+            onMakeCall = { phoneNumber ->
+                if (hasCallPhonePermission()) {
+                    if (callManager.isDefaultPhoneApp()) {
+                        callManager.makeCall(phoneNumber)
                     } else {
-                        // Request permission if not granted
-                        permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
+                        showSetDefaultDialog = true
                     }
-                },
-                onBack = { showDialer = false }
-            )
-            
-            // Dialog to set app as default phone app (only show if overlay permission is granted)
-            if (showSetDefaultDialog && overlayPermissionGranted) {
-                AlertDialog(
-                    onDismissRequest = { 
-                        showSetDefaultDialog = false
-                        // Re-check permissions
-                        checkAndRequestPermissions()
-                    },
-                    title = { Text("Set as Default Phone App") },
-                    text = { 
-                        Text("This app needs to be set as the default phone app to handle incoming and outgoing calls. Please set it as default in settings.")
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                Log.d("MainActivity", "Request default dialer role")
-                                // Close dialog FIRST to prevent immediate re-show
-                                showSetDefaultDialog = false
-                                
-                                // Set flag to prevent immediate re-check
-                                justOpenedSettings = true
-                                
-                                // Always try to open settings - more reliable approach
-                                try {
-                                    Log.d("MainActivity", "Attempting to open default apps settings")
-                                    
-                                    // First try: Use RoleManager (Android 10+) - this shows a system dialog
-                                    val roleRequested = callManager.requestDefaultDialerRole()
-                                    Log.d("MainActivity", "RoleManager request result: $roleRequested")
-                                    
-                                    // Also try to open settings directly as a backup
-                                    // This ensures user can navigate to settings even if RoleManager dialog doesn't show
-                                    try {
-                                        val settingsIntent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
-                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                        }
-                                        
-                                        // Check if intent can be resolved
-                                        val resolveInfo = activity.packageManager.resolveActivity(settingsIntent, PackageManager.MATCH_DEFAULT_ONLY)
-                                        if (resolveInfo != null) {
-                                            Log.d("MainActivity", "Default apps settings intent can be resolved, opening...")
-                                            activity.startActivity(settingsIntent)
-                                            Log.d("MainActivity", "Opened default apps settings successfully")
-                                        } else {
-                                            Log.w("MainActivity", "Default apps settings intent cannot be resolved, trying app settings")
-                                            // Last resort: Open app-specific settings
-                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                data = Uri.fromParts("package", activity.packageName, null)
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                            }
-                                            activity.startActivity(appSettingsIntent)
-                                            Log.d("MainActivity", "Opened app settings as fallback")
-                                        }
-                                    } catch (settingsException: Exception) {
-                                        Log.e("MainActivity", "Failed to open settings: ${settingsException.message}", settingsException)
-                                        // If settings can't be opened, clear flag and re-check
-                                        justOpenedSettings = false
-                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                            checkAndRequestPermissions()
-                                        }, 1000)
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("MainActivity", "Failed to open settings: ${e.message}", e)
-                                    e.printStackTrace()
-                                    justOpenedSettings = false // Clear flag if settings can't be opened
-                                    // Show error to user
-                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                        checkAndRequestPermissions()
-                                    }, 1000)
-                                }
-                            }
-                        ) {
-                            Text("Set as Default")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { 
-                            showSetDefaultDialog = false
-                            // Re-check permissions - will show again if still not set
-                            checkAndRequestPermissions()
-                        }) {
-                            Text("Cancel")
-                        }
-                    }
-                )
-            }
-        } else {
-            var showContacts by remember { mutableStateOf(false) }
-            var showHistory by remember { mutableStateOf(false) }
-            var showProfile by remember { mutableStateOf(false) }
-            var selectedPhoneNumber by remember { mutableStateOf<String?>(null) }
-            
-            if (showProfile && selectedPhoneNumber != null) {
-                ContactProfileScreen(
-                    phoneNumber = selectedPhoneNumber!!,
-                    callHistory = callHistory,
-                    onBack = {
-                        showProfile = false
-                        selectedPhoneNumber = null
-                    },
-                    onMakeCall = { phoneNumber ->
-                        if (hasCallPhonePermission()) {
-                            if (callManager.isDefaultPhoneApp()) {
-                                callManager.makeCall(phoneNumber)
-                            } else {
-                                showSetDefaultDialog = true
-                            }
-                        } else {
-                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
-                        }
-                    }
-                )
-            } else if (showContacts) {
-                // Handle system back button
-                BackHandler(enabled = true) {
-                    showContacts = false
+                } else {
+                    permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
                 }
-                
-                ContactsSearchScreen(
-                    onBack = { showContacts = false },
-                    onContactSelected = { phoneNumber ->
-                        showContacts = false
-                        if (hasCallPhonePermission()) {
-                            if (callManager.isDefaultPhoneApp()) {
-                                callManager.makeCall(phoneNumber)
-                            } else {
-                                showSetDefaultDialog = true
-                            }
-                        } else {
-                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
-                        }
-                    }
-                )
-            } else if (showHistory && selectedPhoneNumber != null) {
-                // Handle system back button
-                BackHandler(enabled = true) {
-                    showHistory = false
-                    selectedPhoneNumber = null
-                }
-                
-                CallHistoryScreen(
-                    phoneNumber = selectedPhoneNumber!!,
-                    callHistory = callHistory,
-                    onBack = { 
-                        showHistory = false
-                        selectedPhoneNumber = null
-                    },
-                    onMakeCall = { phoneNumber ->
-                        if (hasCallPhonePermission()) {
-                            if (callManager.isDefaultPhoneApp()) {
-                                callManager.makeCall(phoneNumber)
-                            } else {
-                                showSetDefaultDialog = true
-                            }
-                        } else {
-                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
-                        }
-                    }
-                )
-            } else {
-                CallManagementScreen(
-                    currentCall = currentCall,
-                    callHistory = callHistory,
-                    onBlockNumber = { callManager.blockNumber(it) },
-                    onUnblockNumber = { callManager.unblockNumber(it) },
-                    isBlocked = { callManager.isBlocked(it) },
-                    onMakeCall = { phoneNumber ->
-                        // Check permission before making call
-                        if (hasCallPhonePermission()) {
-                            // Check if app is default phone app
-                            if (callManager.isDefaultPhoneApp()) {
-                                callManager.makeCall(phoneNumber)
-                            } else {
-                                // Show dialog to set as default
-                                showSetDefaultDialog = true
-                            }
-                        } else {
-                            // Request permission if not granted
-                            permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
-                        }
-                    },
-                    onOpenDialer = { showDialer = true                     },
-                    onOpenContacts = { showContacts = true },
-                    onOpenProfile = { phoneNumber ->
-                        selectedPhoneNumber = phoneNumber
-                        showProfile = true
-                    },
-                    onOpenHistory = { phoneNumber ->
-                        selectedPhoneNumber = phoneNumber
-                        showHistory = true
-                    },
-                    onAnswerCall = { callManager.answerCall() },
-                    onRejectCall = { callManager.rejectCall() }
-                )
-            }
-            
-            // Dialog to set app as default phone app (only show if overlay permission is granted)
+            },
+            onBlockNumber = { callManager.blockNumber(it) },
+            onUnblockNumber = { callManager.unblockNumber(it) },
+            onAnswerCall = { callManager.answerCall() },
+            onRejectCall = { callManager.rejectCall() },
+            isBlocked = { callManager.isBlocked(it) }
+        )
+        
+        // Dialog to set app as default phone app (only show if overlay permission is granted)
             if (showSetDefaultDialog && overlayPermissionGranted) {
                 AlertDialog(
                     onDismissRequest = { 
@@ -778,7 +577,5 @@ fun CallManagementApp(activity: ComponentActivity) {
                     }
                 )
             }
-            
         }
     }
-}
