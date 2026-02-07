@@ -43,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -190,23 +191,27 @@ fun RecentsScreen(
             // Filter chips: All, Missed, Contacts, Non-spam
             var selectedFilter by remember { mutableStateOf("All") }
             val filterChips = listOf("All", "Missed", "Contacts", "Non-spam")
-            fun matchesFilter(g: GroupedCallInfo, f: String): Boolean = when (f) {
-                "Missed" -> g.hasMissedCalls
-                "Contacts" -> g.contactName != null
-                "All", "Non-spam" -> true
-                else -> true
-            }
-            val filteredSections = remember(sections, selectedFilter) {
-                sections.map { (bucket, items) ->
-                    bucket to items.filter { matchesFilter(it, selectedFilter) }
-                }.filter { it.second.isNotEmpty() }
+            val filteredSections by remember {
+                derivedStateOf {
+                    val filter = selectedFilter
+                    sections.map { (bucket, items) ->
+                        bucket to items.filter { g ->
+                            when (filter) {
+                                "Missed" -> g.hasMissedCalls
+                                "Contacts" -> g.contactName != null
+                                "All", "Non-spam" -> true
+                                else -> true
+                            }
+                        }
+                    }.filter { it.second.isNotEmpty() }
+                }
             }
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filterChips) { chip ->
+                items(filterChips, key = { it }) { chip ->
                     FilterChip(
                         selected = selectedFilter == chip,
                         onClick = { selectedFilter = chip },
