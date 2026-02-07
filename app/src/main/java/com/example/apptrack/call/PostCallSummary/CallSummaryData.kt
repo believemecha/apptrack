@@ -12,5 +12,7 @@ data class CallSummaryData(
     val callDurationMillis: Long,
     val callEndTimestamp: Long,
     val contactName: String? = null,
-    val contactPhotoUri: Uri? = null
+    val contactPhotoUri: Uri? = null,
+    val phoneLabel: String = "Mobile",
+    val isSpam: Boolean = false
 )
