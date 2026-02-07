@@ -9,6 +9,7 @@ import android.provider.ContactsContract
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.OnBackPressedCallback
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.apptrack.call.CallControlManager
 import com.example.apptrack.call.CallType
+import com.example.apptrack.ui.screens.call.GooglePhoneCallScreen
 import com.example.apptrack.ui.theme.AppTrackTheme
 import android.telecom.Call
 import android.util.Log
@@ -66,6 +68,21 @@ class InCallActivity : ComponentActivity() {
         
         // Initialize CallControlManager if not already done
         CallControlManager.initialize(this)
+
+        // Back press: if call is in progress, minimize to background so user can return from Recents; else finish
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val activeCall = CallControlManager.getActiveCall()
+                if (activeCall != null &&
+                    (activeCall.state == Call.STATE_ACTIVE || activeCall.state == Call.STATE_DIALING ||
+                     activeCall.state == Call.STATE_RINGING || activeCall.state == Call.STATE_CONNECTING ||
+                     activeCall.state == Call.STATE_HOLDING)) {
+                    moveTaskToBack(true)
+                } else {
+                    finish()
+                }
+            }
+        })
         
         // Monitor call state and close when disconnected
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -87,13 +104,14 @@ class InCallActivity : ComponentActivity() {
                         return
                     }
                     
-                    val activeCall = inCallService.calls?.firstOrNull { 
+                    val activeCall = inCallService.calls?.firstOrNull {
                         try {
                             val state = it.state
-                            state == Call.STATE_ACTIVE || 
-                            state == Call.STATE_DIALING || 
+                            state == Call.STATE_ACTIVE ||
+                            state == Call.STATE_DIALING ||
                             state == Call.STATE_RINGING ||
-                            state == Call.STATE_CONNECTING
+                            state == Call.STATE_CONNECTING ||
+                            state == Call.STATE_HOLDING
                         } catch (e: Exception) {
                             Log.e(TAG, "Error checking call state: ${e.message}", e)
                             false
@@ -150,20 +168,18 @@ class InCallActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    InCallScreen(
+                    GooglePhoneCallScreen(
                         phoneNumber = intent.getStringExtra("phoneNumber") ?: "",
                         contactName = intent.getStringExtra("contactName"),
                         callType = CallType.valueOf(intent.getStringExtra("callType") ?: "INCOMING"),
-                        onAnswer = { 
-                            CallControlManager.answerCall()
-                        },
-                        onReject = { 
+                        onAnswer = { CallControlManager.answerCall() },
+                        onReject = {
                             CallControlManager.endCall()
-                            finish() 
+                            finish()
                         },
-                        onEndCall = { 
+                        onEndCall = {
                             CallControlManager.endCall()
-                            finish() 
+                            finish()
                         }
                     )
                 }

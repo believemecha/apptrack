@@ -50,12 +50,10 @@ class AppInCallService : InCallService() {
                 val contactName = getContactName(phoneNumber)
                 
                 val intent = Intent(this, InCallActivity::class.java).apply {
-                    // Critical flags to show over lock screen and bypass background start restrictions
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or 
-                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or 
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
-                            Intent.FLAG_ACTIVITY_NO_HISTORY)
+                    // Show over lock screen; keep in recents so user can return to call screen
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     putExtra("phoneNumber", phoneNumber)
                     putExtra("contactName", contactName)
                     putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")

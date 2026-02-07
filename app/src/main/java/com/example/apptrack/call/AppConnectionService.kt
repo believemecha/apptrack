@@ -199,12 +199,10 @@ class AppConnectionService : ConnectionService() {
                 val contactName = getContactName(phoneNumber)
                 
                 val intent = Intent(this, InCallActivity::class.java).apply {
-                    // Critical flags to show over lock screen and wake up device
+                    // Show over lock screen; keep in recents so user can return to call screen
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
-                            Intent.FLAG_ACTIVITY_NO_HISTORY
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
                     putExtra("phoneNumber", phoneNumber)
                     putExtra("contactName", contactName)
                     putExtra("callType", "INCOMING")

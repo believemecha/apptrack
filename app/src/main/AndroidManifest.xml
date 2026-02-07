@@ -79,8 +79,7 @@
             android:launchMode="singleInstance"
             android:screenOrientation="portrait"
             android:showWhenLocked="true"
-            android:turnScreenOn="true"
-            android:excludeFromRecents="true" />
+            android:turnScreenOn="true" />
         
         <activity
             android:name=".call.PostCallSummary.PostCallSummaryActivity"

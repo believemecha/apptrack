@@ -34,12 +34,19 @@ object CallControlManager {
     }
     
     fun getActiveCall(): Call? {
-        return inCallService?.calls?.firstOrNull { 
-            it.state == Call.STATE_ACTIVE || 
-            it.state == Call.STATE_DIALING || 
-            it.state == Call.STATE_RINGING ||
-            it.state == Call.STATE_CONNECTING
+        return inCallService?.calls?.firstOrNull {
+            val s = it.state
+            s == Call.STATE_ACTIVE ||
+            s == Call.STATE_DIALING ||
+            s == Call.STATE_RINGING ||
+            s == Call.STATE_CONNECTING ||
+            s == Call.STATE_HOLDING
         }
+    }
+
+    /** Call that is currently on hold. Use for unhold(). */
+    fun getHeldCall(): Call? {
+        return inCallService?.calls?.firstOrNull { it.state == Call.STATE_HOLDING }
     }
     
     fun getIncomingCall(): Call? {
@@ -221,21 +228,29 @@ object CallControlManager {
     }
     
     fun holdCall(): Boolean {
-        val call = getActiveCall()
-        return if (call != null && call.details.hasProperty(Call.Details.CAPABILITY_SUPPORT_HOLD)) {
+        val call = getActiveCall() ?: return false
+        if (call.state == Call.STATE_HOLDING) return true
+        return try {
             call.hold()
             true
-        } else {
+        } catch (e: Exception) {
+            Log.e(TAG, "holdCall failed: ${e.message}", e)
             false
         }
     }
     
     fun unholdCall(): Boolean {
-        val call = getActiveCall()
-        return if (call != null) {
+        val call = getHeldCall()
+        if (call == null) {
+            Log.w(TAG, "unholdCall: no held call found (getHeldCall=null)")
+            return false
+        }
+        return try {
             call.unhold()
+            Log.d(TAG, "unholdCall: unhold() succeeded")
             true
-        } else {
+        } catch (e: Exception) {
+            Log.e(TAG, "unholdCall: unhold() failed: ${e.message}", e)
             false
         }
     }
