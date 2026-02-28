@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -22,6 +23,7 @@ import com.example.apptrack.call.CallInfo
 import com.example.apptrack.ui.contacts.ContactsScreen
 import com.example.apptrack.ui.dialer.DialPadScreen
 import com.example.apptrack.ui.recents.RecentsScreen
+import com.example.apptrack.ui.screens.CallAssistantSettingsScreen
 import com.example.apptrack.ui.screens.CallHistoryScreen
 import com.example.apptrack.ui.screens.ContactProfileScreen
 import com.example.apptrack.ui.search.SearchScreen
@@ -38,9 +40,20 @@ fun HomeNavHost(
     onAnswerCall: () -> Unit,
     onRejectCall: () -> Unit,
     isBlocked: (String) -> Boolean,
+    pendingOpenCallDetailsNumber: String? = null,
+    onConsumePendingOpenCallDetails: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val navController = rememberNavController()
+    LaunchedEffect(pendingOpenCallDetailsNumber) {
+        pendingOpenCallDetailsNumber?.let { number ->
+            navController.navigate(PhoneAppRoutes.callDetails(number)) {
+                popUpTo(PhoneAppRoutes.Recents) { inclusive = false }
+                launchSingleTop = true
+            }
+            onConsumePendingOpenCallDetails()
+        }
+    }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
@@ -104,6 +117,9 @@ fun HomeNavHost(
                             launchSingleTop = true
                             restoreState = true
                         }
+                    },
+                    onOpenCallAssistantSettings = {
+                        navController.navigate(PhoneAppRoutes.CallAssistantSettings)
                     },
                     onOpenCallDetails = { number ->
                         navController.navigate(PhoneAppRoutes.callDetails(number))
@@ -184,6 +200,9 @@ fun HomeNavHost(
                     onBack = { navController.popBackStack() },
                     onMakeCall = onMakeCall
                 )
+            }
+            composable(PhoneAppRoutes.CallAssistantSettings) {
+                CallAssistantSettingsScreen(onBack = { navController.popBackStack() })
             }
         }
     }

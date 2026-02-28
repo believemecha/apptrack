@@ -12,6 +12,9 @@ import com.example.apptrack.ui.screens.InCallActivity
 import com.example.apptrack.call.PostCallSummary.CallSummaryData
 import com.example.apptrack.call.PostCallSummary.CallSummaryLauncher
 import com.example.apptrack.call.CallType
+import com.example.apptrack.call.assistant.AssistantPreferences
+import com.example.apptrack.call.assistant.CallAssistantController
+import com.example.apptrack.call.assistant.CallAssistantOverlayService
 
 class AppInCallService : InCallService() {
     
@@ -43,26 +46,40 @@ class AppInCallService : InCallService() {
             CallControlManager.setAudioModeInCall()
         }
         
-        // Show in-call UI immediately - use a small delay to ensure service is ready
+        // Show in-call UI or Call Assistant overlay
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try {
-                // Get contact name for the call
                 val contactName = getContactName(phoneNumber)
-                
-                val intent = Intent(this, InCallActivity::class.java).apply {
-                    // Show over lock screen; keep in recents so user can return to call screen
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    putExtra("phoneNumber", phoneNumber)
-                    putExtra("contactName", contactName)
-                    putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
+                val useAssistant = direction == Call.Details.DIRECTION_INCOMING &&
+                    callState == Call.STATE_RINGING &&
+                    AssistantPreferences(this).isAssistantEnabled
+
+                if (useAssistant) {
+                    CallAssistantController.setIncomingForAssistant(call, phoneNumber, contactName)
+                    val overlayIntent = Intent(this, CallAssistantOverlayService::class.java).apply {
+                        putExtra(CallAssistantOverlayService.EXTRA_PHONE_NUMBER, phoneNumber)
+                        putExtra(CallAssistantOverlayService.EXTRA_CONTACT_NAME, contactName)
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(overlayIntent)
+                    } else {
+                        startService(overlayIntent)
+                    }
+                    Log.d(TAG, "Call Assistant overlay started for $phoneNumber")
+                } else {
+                    val intent = Intent(this, InCallActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        putExtra("phoneNumber", phoneNumber)
+                        putExtra("contactName", contactName)
+                        putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
+                    }
+                    startActivity(intent)
+                    Log.d(TAG, "InCallActivity started for $phoneNumber (name: $contactName)")
                 }
-                startActivity(intent)
-                Log.d(TAG, "InCallActivity started successfully for $phoneNumber (name: $contactName)")
             } catch (e: SecurityException) {
-                Log.e(TAG, "SecurityException starting InCallActivity (may need SYSTEM_ALERT_WINDOW permission): ${e.message}", e)
-                // Try again with different flags as fallback
+                Log.e(TAG, "SecurityException: ${e.message}", e)
                 try {
                     val contactName = getContactName(phoneNumber)
                     val fallbackIntent = Intent(this, InCallActivity::class.java).apply {
@@ -72,12 +89,11 @@ class AppInCallService : InCallService() {
                         putExtra("callType", if (direction == Call.Details.DIRECTION_INCOMING) "INCOMING" else "OUTGOING")
                     }
                     startActivity(fallbackIntent)
-                    Log.d(TAG, "InCallActivity started with fallback flags")
                 } catch (e2: Exception) {
-                    Log.e(TAG, "Failed to start InCallActivity with fallback: ${e2.message}", e2)
+                    Log.e(TAG, "Fallback failed: ${e2.message}", e2)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start InCallActivity: ${e.message}", e)
+                Log.e(TAG, "Failed to show call UI: ${e.message}", e)
             }
         }, 100)
         
@@ -128,6 +144,10 @@ class AppInCallService : InCallService() {
                     CallControlManager.startCallTimer()
                 }
                 Call.STATE_DISCONNECTED -> {
+                    if (CallAssistantController.incomingForAssistant.value?.call == call) {
+                        CallAssistantController.clearIncoming()
+                        stopService(Intent(this@AppInCallService, CallAssistantOverlayService::class.java))
+                    }
                     val disconnectCause = call.details.disconnectCause
                     Log.d(TAG, "Call disconnected - cause: ${disconnectCause?.code} (${getDisconnectCauseName(disconnectCause?.code ?: -1)})")
                     

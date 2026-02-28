@@ -14,6 +14,11 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Required for showing call UI over lock screen on some OEMs (Xiaomi/MIUI) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Call Assistant: overlay + TTS/Speech -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     
@@ -100,13 +105,18 @@
         </service>
         
         <service
-            android:name=".call.AppCallScreeningService"
+            android:name=".call.CallAssistantScreeningService"
             android:permission="android.permission.BIND_SCREENING_SERVICE"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
+        
+        <service
+            android:name=".call.assistant.CallAssistantOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|phoneCall" />
         
         <service
             android:name=".call.AppInCallService"

@@ -79,6 +79,13 @@ object CallControlManager {
     fun isMuted(): Boolean {
         return isMutedState
     }
+
+    /** Force microphone unmuted (e.g. for Call Assistant so caller hears TTS and we can capture speech). */
+    fun ensureMicUnmuted() {
+        isMutedState = false
+        audioManager?.isMicrophoneMute = false
+        Log.d(TAG, "ensureMicUnmuted: mic unmuted")
+    }
     
     fun setSpeaker(isOn: Boolean): Boolean {
         val service = getInCallService()
@@ -199,6 +206,62 @@ object CallControlManager {
                 Log.e(TAG, "SecurityException - Missing RECORD_AUDIO permission?: ${e.message}", e)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to set audio mode: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Use MODE_IN_COMMUNICATION for Call Assistant: better full-duplex and routes
+     * VOICE_COMMUNICATION AudioTrack toward the call path so TTS can be heard by the caller.
+     */
+    fun setAudioModeInCommunication() {
+        audioManager?.let { am ->
+            try {
+                am.mode = AudioManager.MODE_IN_COMMUNICATION
+                Log.d(TAG, "Audio mode set to MODE_IN_COMMUNICATION")
+                am.isSpeakerphoneOn = true
+                am.isBluetoothScoOn = false
+                val maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+                val currentVolume = am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+                if (currentVolume == 0) {
+                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxOf(1, maxVolume / 2), 0)
+                }
+                ensureMicUnmuted()
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException in setAudioModeInCommunication: ${e.message}", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to set MODE_IN_COMMUNICATION: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Prepare audio for Call Assistant BEFORE answering. Ensures TTS routes through earpiece
+     * (VOICE_CALL path) so mic picks it up for uplink. Call this before call.answer(), then
+     * again after answer to re-apply (Telecom may change mode on answer).
+     */
+    fun prepareAudioForCallAssistant() {
+        audioManager?.let { am ->
+            try {
+                am.mode = AudioManager.MODE_IN_COMMUNICATION
+                Log.d(TAG, "prepareAudioForCallAssistant: MODE_IN_COMMUNICATION")
+                am.isSpeakerphoneOn = false
+                am.isBluetoothScoOn = false
+                val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVol, 0)
+                Log.d(TAG, "prepareAudioForCallAssistant: STREAM_VOICE_CALL volume=$maxVol")
+                ensureMicUnmuted()
+                // Optional: disable AEC/NS on some OEMs so earpiece loopback is not filtered out
+                try {
+                    am.setParameters("noise_suppression=off")
+                    am.setParameters("aec=off")
+                    am.setParameters("ns=off")
+                    Log.d(TAG, "prepareAudioForCallAssistant: AEC/NS params set off")
+                } catch (_: Exception) { /* ignore if unsupported */ }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException in prepareAudioForCallAssistant: ${e.message}", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed prepareAudioForCallAssistant: ${e.message}", e)
             }
         }
     }

@@ -12,6 +12,7 @@ object PhoneAppRoutes {
     const val DialPad = "dial_pad"
     const val CallDetails = "call_details/{phoneNumber}"
     const val ContactDetails = "contact_details/{phoneNumber}"
+    const val CallAssistantSettings = "call_assistant_settings"
 
     fun callDetails(phoneNumber: String): String = "call_details/$phoneNumber"
     fun contactDetails(phoneNumber: String): String = "contact_details/$phoneNumber"

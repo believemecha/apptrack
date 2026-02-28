@@ -76,6 +76,7 @@ fun RecentsScreen(
     callHistory: List<com.example.apptrack.call.CallInfo>,
     currentCall: com.example.apptrack.call.CallInfo? = null,
     onSearchClick: () -> Unit = {},
+    onOpenCallAssistantSettings: () -> Unit = {},
     onOpenCallDetails: (String) -> Unit,
     onOpenProfile: (String) -> Unit,
     onMakeCall: (String) -> Unit,
@@ -152,8 +153,8 @@ fun RecentsScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { /* drawer or menu */ }) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    IconButton(onClick = onOpenCallAssistantSettings) {
+                        Icon(Icons.Default.Menu, contentDescription = "Call Assistant settings")
                     }
                     Surface(
                         modifier = Modifier

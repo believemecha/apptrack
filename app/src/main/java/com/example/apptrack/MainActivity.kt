@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,23 +77,35 @@ fun CallManagementApp(activity: ComponentActivity) {
     // We'll show dialogs to guide users to grant these after overlay permission
     
     // Check if permissions are granted - re-check when needed
+    // RECORD_AUDIO is required for Call Assistant (TTS + speech recognition / earpiece loopback)
     fun checkPermissions(): Boolean {
         val hasPhoneStatePermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_PHONE_STATE
         ) == PackageManager.PERMISSION_GRANTED
-        
+
         val hasCallLogPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_CALL_LOG
         ) == PackageManager.PERMISSION_GRANTED
-        
+
         val hasCallPhonePermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.CALL_PHONE
         ) == PackageManager.PERMISSION_GRANTED
-        
-        return hasPhoneStatePermission && hasCallLogPermission && hasCallPhonePermission
+
+        val hasRecordAudioPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val hasContactsPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        return hasPhoneStatePermission && hasCallLogPermission && hasCallPhonePermission &&
+            hasRecordAudioPermission && hasContactsPermission
     }
     
     // Check SYSTEM_ALERT_WINDOW permission (for showing call UI over lock screen)
@@ -253,6 +266,10 @@ fun CallManagementApp(activity: ComponentActivity) {
             if (!hasRecordAudioPermission()) {
                 permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
             if (permissionsToRequest.isNotEmpty()) {
                 permissionLauncher.launch(permissionsToRequest.toTypedArray())
             }
@@ -290,8 +307,8 @@ fun CallManagementApp(activity: ComponentActivity) {
                     text = "Permissions Required",
                     style = MaterialTheme.typography.headlineSmall
                 )
-    Text(
-                    text = "This app needs phone, call log, and call permissions to manage calls",
+                Text(
+                    text = "This app needs phone, call log, call, and microphone permissions to manage calls and the Call Assistant (voice greeting and speech).",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Button(onClick = {
@@ -312,6 +329,10 @@ fun CallManagementApp(activity: ComponentActivity) {
                     if (!hasRecordAudioPermission()) {
                         permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
                     }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
                     if (permissionsToRequest.isNotEmpty()) {
                         permissionLauncher.launch(permissionsToRequest.toTypedArray())
                     } else {
@@ -325,12 +346,19 @@ fun CallManagementApp(activity: ComponentActivity) {
         }
     } else {
         var searchQuery by remember { mutableStateOf("") }
-        
+        var pendingOpenCallDetails by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(Unit) {
+            activity.intent?.getStringExtra("open_call_details")?.let {
+                pendingOpenCallDetails = it
+            }
+        }
         HomeNavHost(
             callHistory = callHistory,
             currentCall = currentCall,
             searchQuery = searchQuery,
             onSearchQueryChange = { searchQuery = it },
+            pendingOpenCallDetailsNumber = pendingOpenCallDetails,
+            onConsumePendingOpenCallDetails = { pendingOpenCallDetails = null },
             onMakeCall = { phoneNumber ->
                 if (hasCallPhonePermission()) {
                     if (callManager.isDefaultPhoneApp()) {

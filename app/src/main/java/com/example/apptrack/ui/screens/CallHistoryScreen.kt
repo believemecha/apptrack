@@ -27,6 +27,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.apptrack.call.CallInfo
 import com.example.apptrack.call.CallType
+import com.example.apptrack.call.assistant.AssistantTranscript
+import com.example.apptrack.call.assistant.AssistantTranscriptRepository
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -52,9 +55,12 @@ fun CallHistoryScreen(
     }
     
     var contactPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    var assistantTranscripts by remember { mutableStateOf<List<AssistantTranscript>>(emptyList()) }
     
     LaunchedEffect(phoneNumber) {
         contactPhoto = loadContactPhotoForNumber(context, phoneNumber)
+        val repo = AssistantTranscriptRepository(context)
+        assistantTranscripts = repo.getByPhoneNumber(phoneNumber).first()
     }
     
     Scaffold(
@@ -153,6 +159,37 @@ fun CallHistoryScreen(
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                if (assistantTranscripts.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Assistant messages",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                        )
+                    }
+                    items(assistantTranscripts) { t ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = t.transcriptText,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = formatCallDate(t.timestampMillis),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
+                }
                 items(filteredCalls) { call ->
                     CallHistoryDetailItem(
                         call = call,
