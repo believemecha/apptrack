@@ -219,7 +219,7 @@ object CallControlManager {
             try {
                 am.mode = AudioManager.MODE_IN_COMMUNICATION
                 Log.d(TAG, "Audio mode set to MODE_IN_COMMUNICATION")
-                am.isSpeakerphoneOn = true
+                am.isSpeakerphoneOn = false
                 am.isBluetoothScoOn = false
                 val maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
                 val currentVolume = am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)

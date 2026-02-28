@@ -3,9 +3,7 @@ package com.example.apptrack.call.assistant
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -13,6 +11,7 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import com.example.apptrack.call.CallControlManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,7 +21,7 @@ import java.util.Locale
 
 /**
  * Earpiece loopback: TTS uses USAGE_VOICE_COMMUNICATION so it routes through earpiece (speaker OFF).
- * Mic captures earpiece output → uplink to caller. Audio focus matches TTS attributes.
+ * Mic captures earpiece output → uplink to caller while staying on call audio path.
  */
 class AssistantTtsSpeechPipeline(
     private val context: Context,
@@ -39,30 +38,15 @@ class AssistantTtsSpeechPipeline(
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
 
-    private val audioManager: AudioManager? =
-        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-
-    /** Request audio focus with same attributes as TTS so routing is consistent. */
-    private fun requestTtsAudioFocus(): Boolean {
-        val am = audioManager ?: return false
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-                .setAudioAttributes(ttsAudioAttrs)
-                .build()
-            am.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        } else {
-            @Suppress("DEPRECATION")
-            am.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        }
+    private val ttsSpeakParams = Bundle().apply {
+        putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_VOICE_CALL)
     }
 
     fun start() {
         AssistantOverlayStateHolder.setPhase(AssistantOverlayState.Phase.SPEAKING_GREETING)
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    tts?.setAudioAttributes(ttsAudioAttrs)
-                }
+                tts?.setAudioAttributes(ttsAudioAttrs)
                 tts?.language = Locale.US
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
@@ -91,12 +75,9 @@ class AssistantTtsSpeechPipeline(
                         AssistantOverlayStateHolder.setError("TTS error")
                     }
                 })
-                if (requestTtsAudioFocus()) {
-                    tts?.speak(greeting, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_GREETING)
-                } else {
-                    Log.w(TAG, "Audio focus not granted, speaking anyway")
-                    tts?.speak(greeting, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_GREETING)
-                }
+                // Don't request audio focus during Telecom call: focus changes can break call routing.
+                CallControlManager.prepareAudioForCallAssistant()
+                tts?.speak(greeting, TextToSpeech.QUEUE_FLUSH, ttsSpeakParams, UTTERANCE_GREETING)
             } else {
                 Log.e(TAG, "TTS init failed: $status")
                 AssistantOverlayStateHolder.setError("TTS failed to init")
@@ -167,8 +148,8 @@ class AssistantTtsSpeechPipeline(
         speechRecognizer?.stopListening()
         speechRecognizer?.destroy()
         speechRecognizer = null
-        requestTtsAudioFocus()
-        tts?.speak(confirmation, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_CONFIRMATION)
+        CallControlManager.prepareAudioForCallAssistant()
+        tts?.speak(confirmation, TextToSpeech.QUEUE_FLUSH, ttsSpeakParams, UTTERANCE_CONFIRMATION)
     }
 
     fun release() {
