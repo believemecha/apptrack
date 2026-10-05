@@ -20,7 +20,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew assembleDebug testDebugUnitTest
       - name: Lint
-        run: ./gradlew lintDebug || { cat app/build/reports/lint-results-debug.txt; exit 1; }
+        run: ./gradlew lintDebug || { cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt; exit 1; }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
