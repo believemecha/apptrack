@@ -18,8 +18,13 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+      - run: ./gradlew assembleDebug testDebugUnitTest
+      - name: Lint
+        run: ./gradlew lintDebug || { cat app/build/reports/lint-results-debug.txt; exit 1; }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: apptrack-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/lint-results-debug.*
