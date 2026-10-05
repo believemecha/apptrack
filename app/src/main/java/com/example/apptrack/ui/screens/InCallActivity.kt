@@ -127,7 +127,7 @@ class InCallActivity : ComponentActivity() {
                                     if (state == Call.STATE_DISCONNECTED) {
                                         Log.d(TAG, "Call disconnected, closing activity")
                                         runOnUiThread {
-                                            if (!isFinishing) {
+                                            if (!isFinishing && CallControlManager.getActiveCall() == null) {
                                                 try {
                                                     finish()
                                                 } catch (e: Exception) {
@@ -189,7 +189,7 @@ class InCallActivity : ComponentActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
-        CallControlManager.setAudioModeNormal()
+        if (CallControlManager.getActiveCall() == null) CallControlManager.setAudioModeNormal()
     }
 }
 
@@ -524,7 +524,7 @@ fun InCallScreen(
                                             Log.d("InCallActivity", "Call unhold requested")
                                         } else {
                                             // Hold the call - check if supported
-                                            if (activeCall.details.hasProperty(Call.Details.CAPABILITY_SUPPORT_HOLD)) {
+                                            if (activeCall.details.can(Call.Details.CAPABILITY_HOLD)) {
                                                 activeCall.hold()
                                                 isOnHold = true
                                                 Log.d("InCallActivity", "Call hold requested")
@@ -844,7 +844,9 @@ fun getContactPhoto(context: android.content.Context, phoneNumber: String): Bitm
         
         cursor?.use {
             if (it.moveToFirst()) {
-                val contactId = it.getLong(it.getColumnIndex(ContactsContract.PhoneLookup._ID))
+                val idColumn = it.getColumnIndex(ContactsContract.PhoneLookup._ID)
+                if (idColumn < 0) return null
+                val contactId = it.getLong(idColumn)
                 val photoUri = ContactsContract.Contacts.getLookupUri(contactId, "")
                 
                 val photoStream = ContactsContract.Contacts.openContactPhotoInputStream(

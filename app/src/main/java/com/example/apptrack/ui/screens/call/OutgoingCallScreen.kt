@@ -187,6 +187,8 @@ fun OutgoingCallScreen(
                 )
             }
 
+            ConferenceRecordingControls()
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // End call – large red circular button (72dp)

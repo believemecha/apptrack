@@ -31,6 +31,7 @@ class AppInCallService : InCallService() {
     
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
+        ConferenceRecordingController.onAdded(call)
         val phoneNumber = call.details.handle?.schemeSpecificPart ?: ""
         val callState = call.state
         val direction = call.details.callDirection
@@ -46,6 +47,12 @@ class AppInCallService : InCallService() {
             CallControlManager.setAudioModeInCall()
         }
         
+        // Recorder legs and conference parents reuse the existing customer screen.
+        if (ConferenceRecordingController.isRecordingLeg(call) || call.details.hasProperty(Call.Details.PROPERTY_CONFERENCE)) {
+            call.registerCallback(callCallback)
+            return
+        }
+
         // Show in-call UI or Call Assistant overlay
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try {
@@ -120,6 +127,7 @@ class AppInCallService : InCallService() {
         super.onCallRemoved(call)
         Log.d(TAG, "onCallRemoved: ${call.details.handle}")
         call.unregisterCallback(callCallback)
+        ConferenceRecordingController.onRemoved(call)
         
         // Reset audio mode when no calls
         if (calls.isEmpty()) {
@@ -128,7 +136,21 @@ class AppInCallService : InCallService() {
     }
     
     private val callCallback = object : Call.Callback() {
+        override fun onConferenceableCallsChanged(call: Call, conferenceableCalls: MutableList<Call>) {
+            ConferenceRecordingController.update()
+        }
+
+        override fun onParentChanged(call: Call, parent: Call?) {
+            ConferenceRecordingController.update()
+        }
+
+        override fun onDetailsChanged(call: Call, details: Call.Details) {
+            ConferenceRecordingController.update()
+        }
+
         override fun onStateChanged(call: Call, state: Int) {
+            val recordingLeg = ConferenceRecordingController.isRecordingLeg(call)
+            ConferenceRecordingController.update()
             val phoneNumber = call.details.handle?.schemeSpecificPart ?: ""
             val stateName = getStateName(state)
             Log.d(TAG, "Call state changed for $phoneNumber: $state ($stateName)")
@@ -141,9 +163,10 @@ class AppInCallService : InCallService() {
                 Call.STATE_ACTIVE -> {
                     Log.d(TAG, "Call is now active - starting timer")
                     // Call is answered/active, start the timer
-                    CallControlManager.startCallTimer()
+                    if (!recordingLeg) CallControlManager.startCallTimer()
                 }
                 Call.STATE_DISCONNECTED -> {
+                    if (recordingLeg || calls.any { it !== call && it.state != Call.STATE_DISCONNECTED }) return
                     if (CallAssistantController.incomingForAssistant.value?.call == call) {
                         CallAssistantController.clearIncoming()
                         stopService(Intent(this@AppInCallService, CallAssistantOverlayService::class.java))
