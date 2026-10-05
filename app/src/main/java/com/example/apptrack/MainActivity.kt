@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
         
         // Register phone account immediately on app start
         val callManager = CallManager.getInstance(this)
-        callManager.registerPhoneAccount()
+        // SIM calls use the carrier PhoneAccount; do not register a synthetic provider.
         
         enableEdgeToEdge()
         setContent {

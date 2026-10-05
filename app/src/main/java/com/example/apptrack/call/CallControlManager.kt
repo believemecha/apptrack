@@ -34,6 +34,7 @@ object CallControlManager {
     }
     
     fun getActiveCall(): Call? {
+        ConferenceRecordingController.preferredCall()?.let { return it }
         return inCallService?.calls?.firstOrNull {
             val s = it.state
             s == Call.STATE_ACTIVE ||
@@ -155,7 +156,7 @@ object CallControlManager {
     }
     
     fun startCallTimer() {
-        callStartTime = System.currentTimeMillis()
+        if (callStartTime == null) callStartTime = System.currentTimeMillis()
         Log.d(TAG, "Call timer started at: $callStartTime")
     }
     
@@ -287,7 +288,7 @@ object CallControlManager {
     fun endCall() {
         val call = getActiveCall()
         call?.disconnect()
-        setAudioModeNormal()
+        // Telecom owns audio until the final call has ended.
     }
     
     fun holdCall(): Boolean {

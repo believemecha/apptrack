@@ -242,7 +242,10 @@ class CallManager(private val context: Context) {
                 // For real calls, use the system's default SIM phone account for actual telephony
                 // Get the default phone account (SIM card) for real calls
                 val defaultPhoneAccounts = telecomManager.callCapablePhoneAccounts
-                val defaultPhoneAccount = defaultPhoneAccounts.firstOrNull()
+                val defaultPhoneAccount = telecomManager.getDefaultOutgoingPhoneAccount(PhoneAccount.SCHEME_TEL)
+                    ?: defaultPhoneAccounts.firstOrNull {
+                        telecomManager.getPhoneAccount(it)?.hasCapabilities(PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION) == true
+                    }
                 
                 val extras = Bundle().apply {
                     // Use the default SIM's phone account for real telephony connection
