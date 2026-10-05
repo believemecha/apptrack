@@ -26,6 +26,11 @@ object ConferenceRecordingController {
 
     fun start(context: Context, number: String) {
         if (busy) return
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CALL_PHONE)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            status = "Grant Phone permission before connecting the recorder"
+            return
+        }
         val service = CallControlManager.getInCallService() ?: return
         val call = service.calls.firstOrNull { it.state == Call.STATE_ACTIVE && it.parent == null }
         if (call == null || service.calls.count { it.state != Call.STATE_DISCONNECTED } != 1) {

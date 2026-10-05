@@ -844,7 +844,9 @@ fun getContactPhoto(context: android.content.Context, phoneNumber: String): Bitm
         
         cursor?.use {
             if (it.moveToFirst()) {
-                val contactId = it.getLong(it.getColumnIndex(ContactsContract.PhoneLookup._ID))
+                val idColumn = it.getColumnIndex(ContactsContract.PhoneLookup._ID)
+                if (idColumn < 0) return null
+                val contactId = it.getLong(idColumn)
                 val photoUri = ContactsContract.Contacts.getLookupUri(contactId, "")
                 
                 val photoStream = ContactsContract.Contacts.openContactPhotoInputStream(

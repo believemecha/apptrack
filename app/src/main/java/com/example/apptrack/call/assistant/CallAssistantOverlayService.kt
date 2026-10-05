@@ -255,7 +255,10 @@ class CallAssistantOverlayService : LifecycleService(), SavedStateRegistryOwner 
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent): IBinder? = null
+    override fun onBind(intent: Intent): IBinder? {
+        super.onBind(intent)
+        return null
+    }
 
     /**
      * Set LifecycleOwner and SavedStateRegistryOwner on the view via reflection so ComposeView

@@ -29,6 +29,13 @@ class PostCallSummaryActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                viewModel.dismiss()
+                finish()
+                overridePendingTransition(0, 0)
+            }
+        })
         window?.setBackgroundDrawableResource(android.R.color.transparent)
 
         val phoneNumber = intent.getStringExtra("phoneNumber") ?: "Unknown"
@@ -104,10 +111,4 @@ class PostCallSummaryActivity : ComponentActivity() {
         }
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        viewModel.dismiss()
-        finish()
-        overridePendingTransition(0, 0)
-    }
 }
